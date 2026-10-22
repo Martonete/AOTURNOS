@@ -620,6 +620,26 @@ function isHealingSpell(datSpell: Record<string, unknown> | undefined) {
     return Number(datSpell?.subeHp ?? 0) === 1;
 }
 
+/** Combate por turnos en el mundo: se apaga con AO_TURN_BASED=0 para volver al combate en tiempo real. */
+const TURN_BASED_WORLD_COMBAT = process.env.AO_TURN_BASED !== "0";
+
+/**
+ * Pegarle a un NPC del mapa abre la batalla por turnos en vez del golpe en tiempo real.
+ * Devuelve true si el ataque quedó resuelto acá (empezó la batalla o el NPC ya está peleando).
+ */
+function tryStartWorldBattle(ws: RuntimeClient, target: AreaTarget | undefined): boolean {
+    if (!target?.isNpc || target.summonedByUserId) {
+        return false;
+    }
+
+    if (battleManager.isNpcInBattle(target.id)) {
+        handleProtocol.console("Esa criatura ya está en combate.", "white", 0, 0, ws);
+        return true;
+    }
+
+    return TURN_BASED_WORLD_COMBAT && battleManager.startWorldBattle(ws.id!, target.id);
+}
+
 function isNonAttackableNpcTarget(target: AreaTarget | undefined) {
     return Boolean(target?.isNpc && !target.summonedByUserId && Number(target.maxHp ?? target.hp ?? 0) <= 0);
 }
@@ -3495,6 +3515,10 @@ function attackMele(ws: RuntimeClient) {
             return;
         }
 
+        if (tryStartWorldBattle(ws, combatTarget)) {
+            return;
+        }
+
         const resolvedTarget = combatTarget as any;
 
         if (resolvedTarget.hp > 0) {
@@ -3687,6 +3711,10 @@ function attackRange(ws: RuntimeClient) {
 
             if (isOwnSummonTarget(clientId, combatTarget)) {
                 handleProtocol.console("No puedes atacar a tus invocaciones.", "white", 0, 0, ws);
+                return;
+            }
+
+            if (tryStartWorldBattle(ws, combatTarget)) {
                 return;
             }
 
@@ -4017,6 +4045,10 @@ function attackSpell(ws: RuntimeClient) {
 
             if (isNonAttackableNpcTarget(spellTarget) && isHostileCombatSpell(datSpell)) {
                 handleProtocol.console("No puedes atacar a ese NPC.", "white", 0, 0, ws);
+                return;
+            }
+
+            if (isHostileCombatSpell(datSpell) && !isNonAttackableNpcTarget(spellTarget) && tryStartWorldBattle(ws, spellTarget)) {
                 return;
             }
 

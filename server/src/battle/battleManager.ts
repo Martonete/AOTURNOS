@@ -3,7 +3,10 @@ import {
     BattleEngine,
     createBattle,
     createEnemy,
+    createEnemyFromNpc,
     createGrid,
+    isBlocked,
+    combatantAt,
     createHero,
     encounterEnemies,
     ENCOUNTERS,
@@ -12,10 +15,11 @@ import {
     type BattleEvent,
     type BattleState,
     type ClassId,
+    type Combatant,
     type Team,
     type Tile,
 } from "@aoturnos/game-core";
-import type { EntityId, Position, RuntimeCharacter, RuntimeClient } from "../types/runtime";
+import type { EntityId, Position, RuntimeCharacter, RuntimeClient, RuntimeNpc } from "../types/runtime";
 import type { PackageApi } from "../package";
 import type { SocketApi } from "../socket";
 import { getCharacterById, getClientById, isCharacterOnlineById } from "../runtimeRegistry";
@@ -37,12 +41,21 @@ const TURN_TIME_MS = 45_000;
 const CLASS_FALLBACK: Record<number, ClassId> = { 1: 1, 2: 2, 3: 3, 4: 3, 6: 2, 7: 2, 8: 3, 9: 9 };
 
 type BattleCharacter = RuntimeCharacter & { battleId?: string | null };
+type BattleNpc = RuntimeNpc & { battleId?: string | null };
+
+/** Radio en el que los NPCs hostiles cercanos se suman a la pelea. */
+const NPC_GROUP_RADIUS = 5;
+const MAX_WORLD_ENEMIES = 6;
 
 type LiveBattle = {
     engine: BattleEngine;
-    encounterId: string;
+    /** Encuentro de prueba (/batalla) o null si salió de atacar NPCs del mapa. */
+    encounterId: string | null;
     /** characterId -> combatantId */
     heroes: Map<string, string>;
+    /** NPCs del mundo que pelean en esta batalla (worldId -> combatantId). */
+    worldNpcs: Map<string, string>;
+    leaderId: string;
     timer: ReturnType<typeof setTimeout> | null;
 };
 
@@ -113,52 +126,89 @@ function gatherParty(leader: BattleCharacter): BattleCharacter[] {
     return members;
 }
 
-export function startBattle(leaderId: EntityId, encounterId = "lobos"): string | null {
-    const leader = getCharacterById<BattleCharacter>(leaderId);
-    if (!leader) return null;
-
-    const notice = (message: string) => send(leaderId, { kind: "notice", message });
+/** Valida que un personaje pueda entrar en combate; si no, le avisa por qué. */
+function canStartBattle(leader: BattleCharacter): boolean {
+    const notice = (message: string) => send(leader.id, { kind: "notice", message });
     if (leader.battleId && battles.has(leader.battleId)) {
         notice("Ya estás en una batalla.");
-        return null;
+        return false;
     }
     if (leader.dead) {
         notice("No podés iniciar una batalla estando muerto.");
-        return null;
+        return false;
     }
     if (leader.challengeMatchId || leader.arenaRoomId) {
         notice("Terminá el reto o la arena antes de iniciar una batalla.");
-        return null;
+        return false;
     }
-    const encounter = ENCOUNTERS[encounterId];
-    if (!encounter) {
-        notice(`Encuentro desconocido. Disponibles: ${Object.keys(ENCOUNTERS).join(", ")}.`);
-        return null;
+    return true;
+}
+
+/** La vida y el maná del mundo pasan a la batalla en la misma proporción. */
+function heroFromCharacter(member: BattleCharacter): Combatant {
+    const hero = createHero({
+        characterId: String(member.id),
+        name: member.nameCharacter,
+        classId: CLASS_FALLBACK[Number(member.idClase)] ?? 3,
+        level: Number(member.level ?? 1),
+        // Solo para pruebas: AO_BATTLE_AUTOPLAY=1 deja que la IA juegue también por los héroes.
+        controller: process.env.AO_BATTLE_AUTOPLAY === "1" ? "ai" : "player",
+        appearance: {
+            body: Number(member.idBody ?? 0),
+            head: Number(member.idHead ?? 0),
+            weapon: Number(member.idWeapon ?? 0),
+            shield: Number(member.idShield ?? 0),
+            helmet: Number(member.idHelmet ?? 0),
+        },
+    });
+    const hpRatio = Number(member.maxHp ?? 0) > 0 ? Number(member.hp ?? 0) / Number(member.maxHp) : 1;
+    hero.res.hp = Math.max(1, Math.min(hero.res.maxHp, Math.round(hero.res.maxHp * hpRatio)));
+    const manaRatio = Number(member.maxMana ?? 0) > 0 ? Number(member.mana ?? 0) / Number(member.maxMana) : 1;
+    hero.res.mana = Math.max(0, Math.min(hero.res.maxMana, Math.round(hero.res.maxMana * manaRatio)));
+    return hero;
+}
+
+/** Pone a cada combatiente en la casilla donde está en el mundo, si cae dentro de la grilla y está libre. */
+function keepWorldPositions(state: BattleState, worldPos: Map<string, Position>): void {
+    const origin = state.grid.origin;
+    if (!origin) return;
+    for (const [combatantId, pos] of worldPos) {
+        const c = state.combatants[combatantId];
+        const tile = { x: pos.x - origin.x, y: pos.y - origin.y };
+        if (!c || tile.x < 0 || tile.y < 0 || tile.x >= state.grid.width || tile.y >= state.grid.height) continue;
+        if (isBlocked(state.grid, tile)) continue;
+        const occupant = combatantAt(state, tile);
+        if (occupant && occupant.id !== c.id) continue;
+        c.pos = tile;
     }
+}
 
-    const members = gatherParty(leader);
-    const heroes = members.map((member) =>
-        createHero({
-            characterId: String(member.id),
-            name: member.nameCharacter,
-            classId: CLASS_FALLBACK[Number(member.idClase)] ?? 3,
-            level: Number(member.level ?? 1),
-            appearance: {
-                body: Number(member.idBody ?? 0),
-                head: Number(member.idHead ?? 0),
-                weapon: Number(member.idWeapon ?? 0),
-                shield: Number(member.idShield ?? 0),
-                helmet: Number(member.idHelmet ?? 0),
-            },
-        }),
-    );
-    const enemies = encounterEnemies(encounter, heroes.length).map((id, i) => createEnemy(id, i));
-
+function launch(
+    leader: BattleCharacter,
+    members: BattleCharacter[],
+    enemies: Combatant[],
+    opts: { encounterId: string | null; title: string; center: Position; worldNpcs?: Map<string, string>; worldPos?: Map<string, Position> },
+): string {
+    const heroes = members.map(heroFromCharacter);
     battleCounter += 1;
     const battleId = `b${Date.now().toString(36)}${battleCounter}`;
-    const state = createBattle({ id: battleId, grid: cutGrid(leader.map, leader.pos), heroes, enemies });
+    const state = createBattle({ id: battleId, grid: cutGrid(leader.map, opts.center), heroes, enemies });
+
+    if (opts.worldPos) {
+        const positions = new Map(opts.worldPos);
+        for (const member of members) positions.set(`hero:${member.id}`, member.pos);
+        keepWorldPositions(state, positions);
+    }
+
     const engine = new BattleEngine(state, { turnTimeMs: TURN_TIME_MS });
-    const battle: LiveBattle = { engine, encounterId, heroes: new Map(), timer: null };
+    const battle: LiveBattle = {
+        engine,
+        encounterId: opts.encounterId,
+        heroes: new Map(),
+        worldNpcs: opts.worldNpcs ?? new Map(),
+        leaderId: String(leader.id),
+        timer: null,
+    };
 
     for (const hero of heroes) {
         const characterId = hero.source.kind === "character" ? hero.source.characterId : "";
@@ -166,14 +216,123 @@ export function startBattle(leaderId: EntityId, encounterId = "lobos"): string |
         const member = getCharacterById<BattleCharacter>(characterId);
         if (member) member.battleId = battleId;
     }
+    for (const worldId of battle.worldNpcs.keys()) {
+        const npc = vars.npcs[worldId] as BattleNpc | undefined;
+        if (npc) npc.battleId = battleId;
+    }
     battles.set(battleId, battle);
 
     const startEvents = engine.begin();
     for (const [characterId, combatantId] of battle.heroes) {
-        send(characterId, { kind: "start", battleId, you: combatantId, encounter: encounter.name, state: engine.state });
+        send(characterId, { kind: "start", battleId, you: combatantId, encounter: opts.title, state: engine.state });
     }
     publish(battle, startEvents, 1200);
     return battleId;
+}
+
+export function startBattle(leaderId: EntityId, encounterId = "lobos"): string | null {
+    const leader = getCharacterById<BattleCharacter>(leaderId);
+    if (!leader || !canStartBattle(leader)) return null;
+    const encounter = ENCOUNTERS[encounterId];
+    if (!encounter) {
+        send(leaderId, { kind: "notice", message: `Encuentro desconocido. Disponibles: ${Object.keys(ENCOUNTERS).join(", ")}.` });
+        return null;
+    }
+    const members = gatherParty(leader);
+    const enemies = encounterEnemies(encounter, members.length).map((id, i) => createEnemy(id, i));
+    return launch(leader, members, enemies, { encounterId, title: encounter.name, center: leader.pos });
+}
+
+/** true si el NPC del mundo está peleando en una batalla por turnos: no piensa, no se mueve, no se le puede pegar. */
+export function isNpcInBattle(npcId: EntityId | null | undefined): boolean {
+    if (npcId === null || npcId === undefined) return false;
+    const npc = vars.npcs[npcId] as BattleNpc | undefined;
+    return Boolean(npc?.battleId && battles.has(npc.battleId));
+}
+
+function canJoinWorldBattle(npc: BattleNpc | undefined): npc is BattleNpc {
+    return Boolean(
+        npc &&
+            npc.isNpc &&
+            !npc.summonedByUserId &&
+            Number(npc.maxHp ?? 0) > 0 &&
+            Number(npc.hp ?? 0) > 0 &&
+            !(npc.battleId && battles.has(npc.battleId)),
+    );
+}
+
+function npcToEnemy(npc: BattleNpc, index: number): Combatant {
+    return createEnemyFromNpc(
+        {
+            worldId: String(npc.id),
+            npcIndex: Number(npc.templateNpcIndex ?? 0) || undefined,
+            name: String(npc.nameCharacter ?? "Criatura"),
+            hp: Number(npc.hp ?? 1),
+            maxHp: Number(npc.maxHp ?? 1),
+            minHit: Number(npc.minHit ?? 1),
+            maxHit: Number(npc.maxHit ?? 2),
+            def: Number(npc.def ?? 0),
+            attackPower: Number(npc.poderAtaque ?? 50),
+            evasion: Number(npc.poderEvasion ?? 30),
+            caster: Array.isArray(npc.spells) && npc.spells.length > 0,
+            appearance: {
+                body: Number(npc.idBody ?? 0),
+                head: Number(npc.idHead ?? 0),
+                weapon: Number(npc.idWeapon ?? 0),
+                shield: Number(npc.idShield ?? 0),
+                helmet: Number(npc.idHelmet ?? 0),
+            },
+        },
+        index,
+    );
+}
+
+/**
+ * Atacar a un NPC del mapa abre una batalla por turnos en ese mismo lugar: pelean ese NPC,
+ * los hostiles que estén cerca y la party del atacante. Devuelve true si la batalla empezó.
+ */
+export function startWorldBattle(leaderId: EntityId, npcId: EntityId, opts: { aggressor?: boolean } = {}): boolean {
+    const leader = getCharacterById<BattleCharacter>(leaderId);
+    const target = vars.npcs[npcId] as BattleNpc | undefined;
+    if (!leader || !canJoinWorldBattle(target)) return false;
+    // Si la criatura es la que ataca y el jugador no puede pelear (muerto, en reto o arena), sigue el combate normal.
+    if (opts.aggressor) {
+        if (leader.dead || leader.challengeMatchId || leader.arenaRoomId || (leader.battleId && battles.has(leader.battleId))) {
+            return false;
+        }
+    } else if (!canStartBattle(leader)) {
+        return true;
+    }
+
+    const members = gatherParty(leader);
+    const limit = Math.min(MAX_WORLD_ENEMIES, 1 + members.length + 1);
+    const group: BattleNpc[] = [target];
+    const nearby: BattleNpc[] = [];
+    for (const id in vars.npcs) {
+        const npc = vars.npcs[id] as BattleNpc | undefined;
+        if (!canJoinWorldBattle(npc) || String(npc.id) === String(target.id)) continue;
+        if (npc.map !== target.map || npc.movement !== 3) continue;
+        if (Math.abs(npc.pos.x - target.pos.x) + Math.abs(npc.pos.y - target.pos.y) > NPC_GROUP_RADIUS) continue;
+        nearby.push(npc);
+    }
+    nearby.sort(
+        (a, b) =>
+            Math.abs(a.pos.x - target.pos.x) + Math.abs(a.pos.y - target.pos.y) -
+            (Math.abs(b.pos.x - target.pos.x) + Math.abs(b.pos.y - target.pos.y)),
+    );
+    group.push(...nearby.slice(0, limit - 1));
+
+    const enemies = group.map(npcToEnemy);
+    const worldNpcs = new Map(group.map((npc, i) => [String(npc.id), enemies[i].id]));
+    const worldPos = new Map(group.map((npc, i) => [enemies[i].id, npc.pos]));
+    const center = {
+        x: Math.round((leader.pos.x + target.pos.x) / 2),
+        y: Math.round((leader.pos.y + target.pos.y) / 2),
+    };
+    const name = group.length > 1 ? `${target.nameCharacter} y ${group.length - 1} más` : String(target.nameCharacter);
+    const title = opts.aggressor ? `¡Emboscada! ${name}` : name;
+    launch(leader, members, enemies, { encounterId: null, title, center, worldNpcs, worldPos });
+    return true;
 }
 
 /** Envía eventos y programa lo que sigue: turno de IA o reloj del jugador. */
@@ -207,31 +366,66 @@ function publish(battle: LiveBattle, events: BattleEvent[], aiDelayMs = AI_TURN_
     }
 }
 
+/** Al ganar, los NPCs del mundo mueren como en el combate normal: dan experiencia, oro y botín, y reaparecen. */
+function resolveWorldNpcs(battle: LiveBattle, won: boolean): void {
+    const respawn = require("../respawn");
+    // muere() necesita el cliente de quien mató: el líder o, si se desconectó, cualquier héroe conectado.
+    const killerId = [battle.leaderId, ...battle.heroes.keys()].find((id) => getClientById(id));
+    const leaderClient = killerId ? getClientById<RuntimeClient>(killerId) : undefined;
+    for (const worldId of battle.worldNpcs.keys()) {
+        const npc = vars.npcs[worldId] as BattleNpc | undefined;
+        if (!npc || npc.battleId !== battle.engine.state.id) continue;
+        npc.battleId = null;
+        if (won && leaderClient) {
+            npc.hp = 0;
+            respawn.muere(leaderClient, npc.id);
+        } else {
+            npc.hp = npc.maxHp;
+            npc.currentTargetId = 0;
+            npc.nextThinkAt = Date.now() + 1500;
+        }
+    }
+}
+
 function finish(battle: LiveBattle, winner: Team | "draw"): void {
     const state = battle.engine.state;
     if (battle.timer) clearTimeout(battle.timer);
     battle.timer = null;
     battles.delete(state.id);
 
-    const encounter = ENCOUNTERS[battle.encounterId];
     const won = winner === "heroes";
-    const share = won ? Math.floor(encounter.exp / Math.max(1, battle.heroes.size)) : 0;
-    const gold = won ? Math.floor(encounter.gold / Math.max(1, battle.heroes.size)) : 0;
     const handleProtocol = require("../handleProtocol");
     const game = require("../game");
+    const encounter = battle.encounterId ? ENCOUNTERS[battle.encounterId] : null;
+    const share = won && encounter ? Math.floor(encounter.exp / Math.max(1, battle.heroes.size)) : 0;
+    const goldShare = won && encounter ? Math.floor(encounter.gold / Math.max(1, battle.heroes.size)) : 0;
 
+    // Primero se devuelve a cada héroe al mundo con su vida y maná proporcionales.
+    const before = new Map<string, { exp: number; gold: number }>();
     for (const [characterId, combatantId] of battle.heroes) {
         const user = getCharacterById<BattleCharacter>(characterId);
         const hero = state.combatants[combatantId];
         if (!user) continue;
         user.battleId = null;
-
         // Por ahora caer en batalla no mata en el mundo: se vuelve con lo justo para seguir.
-        user.hp = Math.max(1, Math.min(Number(user.maxHp ?? hero.res.maxHp), hero.alive ? hero.res.hp : 1));
-        if (Number(user.maxMana ?? 0) > 0) user.mana = Math.min(Number(user.maxMana), hero.res.mana);
+        const maxHp = Number(user.maxHp ?? hero.res.maxHp);
+        const hpRatio = hero.alive ? hero.res.hp / Math.max(1, hero.res.maxHp) : 0;
+        user.hp = Math.max(1, Math.min(maxHp, Math.round(maxHp * hpRatio)));
+        if (Number(user.maxMana ?? 0) > 0 && hero.res.maxMana > 0) {
+            user.mana = Math.min(Number(user.maxMana), Math.round(Number(user.maxMana) * (hero.res.mana / hero.res.maxMana)));
+        }
         user.exp = Number(user.exp ?? 0) + share;
-        user.gold = Number(user.gold ?? 0) + gold;
+        user.gold = Number(user.gold ?? 0) + goldShare;
+        before.set(characterId, { exp: Number(user.exp), gold: Number(user.gold) });
+    }
 
+    // Las muertes de los NPCs reales reparten experiencia, oro y botín por las reglas de siempre.
+    if (battle.worldNpcs.size > 0) resolveWorldNpcs(battle, won);
+
+    for (const characterId of battle.heroes.keys()) {
+        const user = getCharacterById<BattleCharacter>(characterId);
+        if (!user) continue;
+        const prev = before.get(characterId) ?? { exp: Number(user.exp ?? 0), gold: Number(user.gold ?? 0) };
         const client = getClientById<RuntimeClient>(characterId);
         if (client) {
             handleProtocol.updateHP(user.hp, client);
@@ -240,7 +434,15 @@ function finish(battle: LiveBattle, winner: Team | "draw"): void {
             handleProtocol.actGold(user.gold, client);
         }
         if (share > 0) game.checkUserLevel(characterId);
-        send(characterId, { kind: "end", battleId: state.id, winner, rewards: { exp: share, gold } });
+        send(characterId, {
+            kind: "end",
+            battleId: state.id,
+            winner,
+            rewards: {
+                exp: share + Math.max(0, Number(user.exp ?? 0) - prev.exp),
+                gold: goldShare + Math.max(0, Number(user.gold ?? 0) - prev.gold),
+            },
+        });
     }
 }
 

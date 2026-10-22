@@ -1659,7 +1659,11 @@ function getNextChasePosition(npc: NpcCharacter, target: NpcFollowTarget) {
 }
 
 function isInvisibleToNpc(user: PlayerCharacter | undefined) {
-    return Boolean(user && ((user.privileges === 1 && user.invisibleAdmin) || user.invisibleSpell || user.hiddenSkill));
+    // Quien está en una batalla por turnos queda fuera del alcance del resto de los NPCs del mundo.
+    return Boolean(
+        user &&
+            ((user.privileges === 1 && user.invisibleAdmin) || user.invisibleSpell || user.hiddenSkill || user.battleId),
+    );
 }
 
 function removeUserFromNpcArea(idNpc: EntityId, idUser: EntityId) {
@@ -2205,6 +2209,7 @@ function Npcs(this: NpcsApi) {
 
                 if (
                     npc.movement !== 3 ||
+                    npc.battleId ||
                     (!vars.areaNpc[idNpc]?.length &&
                         !getHostileNpcCurrentSummonTarget(npc) &&
                         !getRecentSummonAggressorTarget(npc))
@@ -2399,6 +2404,19 @@ function Npcs(this: NpcsApi) {
 
             if (npc.paralizado || npc.inmovilizado) {
                 return;
+            }
+
+            // Con el combate por turnos, una criatura que alcanza a un jugador (o lo tiene a tiro de hechizo)
+            // lo mete en una batalla en vez de pegarle en tiempo real.
+            if (!targetIsSummon && userTarget && process.env.AO_TURN_BASED !== "0") {
+                const distance = getManhattanDistance(npc.pos, target.pos);
+                const spellReach = Array.isArray(npc.spells) && npc.spells.length > 0 ? Number(npc.spellRange ?? 6) : 0;
+                if (distance <= Math.max(1, spellReach)) {
+                    const battleManager = require("./battle/battleManager") as typeof import("./battle/battleManager");
+                    if (battleManager.startWorldBattle(userTarget.id, idNpc, { aggressor: true })) {
+                        return;
+                    }
+                }
             }
 
             if (!targetIsSummon && userTarget && tryNpcCastSpell(npc, userTarget, updateNpcHeading)) {

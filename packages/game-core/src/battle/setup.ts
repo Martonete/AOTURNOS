@@ -211,3 +211,68 @@ export function createBattle(input: CreateBattleInput): BattleState {
         version: 0,
     };
 }
+
+/** Datos de un NPC real del mundo, tal como los tiene el server en vars.npcs. */
+export type WorldNpcInput = {
+    /** Id de la instancia en el mundo. */
+    worldId: string;
+    /** Índice en game_npcs, para reconocer las plantillas tácticas conocidas. */
+    npcIndex?: number;
+    name: string;
+    hp: number;
+    maxHp: number;
+    minHit: number;
+    maxHit: number;
+    def: number;
+    magicResist?: number;
+    attackPower: number;
+    evasion: number;
+    /** true si el NPC lanza hechizos en el mundo. */
+    caster?: boolean;
+    appearance: Combatant["appearance"];
+};
+
+const UNDEAD_NAME = /esqueleto|zombi|liche|no muerto|espectro|fantasma/i;
+
+/**
+ * Combatiente a partir de un NPC del mapa: sus números salen del NPC real y, si hay
+ * plantilla táctica para ese game_npcs, se toman de ahí las habilidades y el arquetipo.
+ */
+export function createEnemyFromNpc(input: WorldNpcInput, index: number, team: Team = "enemies"): Combatant {
+    const template = Object.values(ENEMIES).find((t) => t.npcIndex === input.npcIndex);
+    const maxHp = Math.max(1, Math.round(input.maxHp));
+    const caster = template ? template.archetype === "caster" : Boolean(input.caster);
+    const undead = template ? template.tags.includes("undead") : UNDEAD_NAME.test(input.name);
+    const base = template
+        ? createEnemy(template.id, index, team)
+        : createEnemy("lobo", index, team);
+
+    return {
+        ...base,
+        id: `npc:${input.worldId}`,
+        name: input.name,
+        source: { kind: "npc", templateId: template?.id ?? `npc${input.npcIndex ?? 0}` },
+        appearance: { ...input.appearance },
+        res: {
+            ...base.res,
+            hp: Math.max(1, Math.min(maxHp, Math.round(input.hp))),
+            maxHp,
+            mana: template ? base.res.mana : caster ? 300 : 0,
+            maxMana: template ? base.res.maxMana : caster ? 300 : 0,
+        },
+        stats: {
+            ...base.stats,
+            level: template?.level ?? Math.max(1, Math.round(maxHp / 25)),
+            agilidad: template?.agilidad ?? Math.max(8, Math.min(30, Math.round(input.evasion / 5))),
+            hitMin: Math.max(1, Math.round(input.minHit)),
+            hitMax: Math.max(1, Math.round(input.maxHit)),
+            attackPower: Math.round(input.attackPower),
+            evasion: Math.round(input.evasion),
+            defense: Math.max(0, Math.round(input.def)),
+            magicResist: input.magicResist ?? base.stats.magicResist,
+        },
+        abilities: template ? [...template.abilities] : caster ? ["golpe", "proyectil_magico"] : ["golpe"],
+        tags: undead && !base.tags.includes("undead") ? [...base.tags, "undead"] : [...base.tags],
+        archetype: template?.archetype ?? (caster ? "caster" : "melee"),
+    };
+}
