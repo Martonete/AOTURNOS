@@ -291,7 +291,7 @@ export async function createCharacter(
             },
             body: JSON.stringify({
                 name,
-                class: "guerrero",
+                class: "paladin",
                 race: "humano",
                 gender: "male",
                 headId: 1,

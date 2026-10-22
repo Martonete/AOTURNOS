@@ -27,6 +27,9 @@ export type BaseStats = {
 export type CharacterClassOption = {
     key: CharacterClassKey;
     label: string;
+    /** Rol en el combate por turnos; vacío en las clases no disponibles. */
+    role: string;
+    available: boolean;
 };
 
 type ClassProgress = {
@@ -58,35 +61,31 @@ export const characterClassOptions: CharacterClassOption[] = [
     {
         key: "mago",
         label: "Mago",
-    },
-    {
-        key: "clerigo",
-        label: "Clerigo",
-    },
-    {
-        key: "guerrero",
-        label: "Guerrero",
-    },
-    {
-        key: "asesino",
-        label: "Asesino",
-    },
-    {
-        key: "bardo",
-        label: "Bardo",
-    },
-    {
-        key: "druida",
-        label: "Druida",
+        role: "Magia de daño y control a distancia",
+        available: true,
     },
     {
         key: "paladin",
-        label: "Paladin",
+        label: "Paladín",
+        role: "Golpe fuerte, primera línea y pocos hechizos",
+        available: true,
+    },
+    {
+        key: "clerigo",
+        label: "Clérigo",
+        role: "Sanador y soporte del grupo",
+        available: true,
     },
     {
         key: "cazador",
-        label: "Cazador",
+        label: "Cazador / Arquero",
+        role: "Daño físico a distancia",
+        available: true,
     },
+    { key: "guerrero", label: "Guerrero", role: "", available: false },
+    { key: "asesino", label: "Asesino", role: "", available: false },
+    { key: "bardo", label: "Bardo", role: "", available: false },
+    { key: "druida", label: "Druida", role: "", available: false },
 ];
 
 const classProgressByKey: Record<CharacterClassKey, ClassProgress> = {

@@ -1,7 +1,7 @@
 export type Team = "heroes" | "enemies";
 
-/** Ids de vars.clases en server/src/vars.ts. El Arquero reutiliza el id 9 (Cazador). */
-export type ClassId = 1 | 2 | 3 | 9;
+/** Ids de vars.clases en server/src/vars.ts. Jugables: Mago 1, Clérigo 2, Paladín 8, Cazador 9 (arquero). */
+export type ClassId = 1 | 2 | 8 | 9;
 
 /** vars.direcciones: 1 arriba, 2 abajo, 3 derecha, 4 izquierda. */
 export type Heading = 1 | 2 | 3 | 4;

@@ -340,19 +340,41 @@ export default function CreateCharacterView() {
                                                 <button
                                                     key={option.key}
                                                     type="button"
+                                                    disabled={!option.available}
+                                                    aria-disabled={
+                                                        !option.available
+                                                    }
+                                                    title={
+                                                        option.available
+                                                            ? option.role
+                                                            : "Todavía no disponible"
+                                                    }
                                                     onClick={() =>
                                                         setSelectedClass(
                                                             option.key,
                                                         )
                                                     }
                                                     className={`rounded-[18px] border px-3 py-3 text-left transition ${
-                                                        isActive
-                                                            ? "border-amber-300/60 bg-amber-300/12"
-                                                            : "border-white/8 bg-white/3 hover:border-white/18 hover:bg-white/6"
+                                                        !option.available
+                                                            ? "cursor-not-allowed border-white/5 bg-white/2 opacity-45"
+                                                            : isActive
+                                                              ? "border-amber-300/60 bg-amber-300/12"
+                                                              : "border-white/8 bg-white/3 hover:border-white/18 hover:bg-white/6"
                                                     }`}
                                                 >
-                                                    <p className="text-sm font-semibold text-white">
+                                                    <p
+                                                        className={`text-sm font-semibold ${
+                                                            option.available
+                                                                ? "text-white"
+                                                                : "text-stone-500 line-through"
+                                                        }`}
+                                                    >
                                                         {option.label}
+                                                    </p>
+                                                    <p className="mt-1 text-xs text-stone-400">
+                                                        {option.available
+                                                            ? option.role
+                                                            : "No disponible"}
                                                     </p>
                                                 </button>
                                             );

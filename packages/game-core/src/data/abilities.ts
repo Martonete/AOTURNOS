@@ -316,7 +316,7 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
         hostile: false,
     },
 
-    // Guerrero
+    // Paladín
     embestida: {
         id: "embestida",
         name: "Embestida",
@@ -337,7 +337,7 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
     provocar: {
         id: "provocar",
         name: "Provocar",
-        description: "El enemigo debe atacar al guerrero en su próximo turno.",
+        description: "El enemigo debe atacar al paladín en su próximo turno.",
         apCost: 2,
         mana: 0,
         stamina: 20,

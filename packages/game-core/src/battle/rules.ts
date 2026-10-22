@@ -41,7 +41,7 @@ export function damageTakenMultiplier(target: Combatant): number {
     return Math.max(0, 1 + flatModifier(target, "damageTakenPct") / 100);
 }
 
-/** Arquero: +10 % por casilla por encima de 3, hasta +30 %. */
+/** Cazador: +10 % por casilla por encima de 3, hasta +30 %. */
 export function longShotBonus(attacker: Combatant, distance: number): number {
     if (!attacker.tags.includes("longShot")) return 1;
     return 1 + Math.min(0.3, Math.max(0, distance - 3) * 0.1);
