@@ -134,6 +134,8 @@ interface MapRendererProps {
     mapNumber: number;
     width?: number;
     height?: number;
+    /** Tamaño del mundo visible en píxeles de juego; por defecto el cuadro clásico de 21x21 casillas. */
+    viewPixels?: { width: number; height: number };
     embedded?: boolean;
     connection?: ManualConnectionConfig | null;
     equipRequest?: { slot: number; token: number } | null;
@@ -657,6 +659,7 @@ export default function MapRenderer({
     mapNumber,
     width,
     height,
+    viewPixels,
     embedded = false,
     connection,
     equipRequest,
@@ -1367,14 +1370,17 @@ export default function MapRenderer({
         spellTargetRequest,
     });
 
+    const viewPixelWidth = viewPixels?.width ?? VIEWPORT_PIXEL_WIDTH;
+    const viewPixelHeight = viewPixels?.height ?? VIEWPORT_PIXEL_HEIGHT;
+
     useEffect(() => {
         setIsMounted(true);
         setScreenSize({
-            width: VIEWPORT_PIXEL_WIDTH,
-            height: VIEWPORT_PIXEL_HEIGHT,
+            width: viewPixelWidth,
+            height: viewPixelHeight,
         });
         setCanvasDisplaySize(getCanvasDisplaySize());
-    }, [getCanvasDisplaySize]);
+    }, [getCanvasDisplaySize, viewPixelHeight, viewPixelWidth]);
 
     useEffect(() => {
         if (!isMounted) return;
@@ -1416,6 +1422,9 @@ export default function MapRenderer({
         if (!engine || !app) return;
 
         app.renderer.resize(screenSize.width, screenSize.height);
+        // autoDensity fija el tamaño CSS en píxeles; el canvas tiene que seguir llenando su contenedor.
+        app.canvas.style.width = "100%";
+        app.canvas.style.height = "100%";
         if (fpsText) {
             fpsText.x = FPS_TEXT_OFFSET_X;
             fpsText.y = FPS_TEXT_OFFSET_Y;

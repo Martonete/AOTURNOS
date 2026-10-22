@@ -63,8 +63,10 @@ import {
 } from "../../lib/runtime-config";
 import { useAuthRedirect } from "../../hooks/useAuthRedirect";
 import {
+    TILE_SIZE,
     VIEWPORT_PIXEL_HEIGHT,
     VIEWPORT_PIXEL_WIDTH,
+    VIEWPORT_TILE_HEIGHT,
 } from "../../lib/viewport";
 
 const DEFAULT_WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:7666";
@@ -85,6 +87,9 @@ const SHELL_HORIZONTAL_PADDING = 24;
 const SHELL_HORIZONTAL_PADDING_FULLSCREEN = 16;
 const COLUMN_SECTION_GAP = 12;
 const MAX_FULLSCREEN_HUD_SCALE = 1.5;
+/** El servidor manda lo que pasa a 15 casillas del personaje: más ancho que eso no se puede mostrar. */
+const IMMERSIVE_MAX_VIEW_TILES_X = 31;
+const IMMERSIVE_PANEL_PADDING = 12;
 const FULLSCREEN_HINT_DURATION_MS = 2600;
 const FULLSCREEN_PROMPT_MAX_WIDTH = 1200;
 const FULLSCREEN_PROMPT_MAX_HEIGHT = 900;
@@ -174,6 +179,15 @@ function resolveWebSocketUrl(configuredUrl: string): string {
 type HudLayout = {
     canvasWidth?: number;
     canvasHeight?: number;
+};
+
+/** Pantalla completa real: el mapa llena la pantalla y los paneles flotan encima o al costado. */
+type ImmersiveLayout = {
+    mapWidth: number;
+    mapHeight: number;
+    viewPixels: { width: number; height: number };
+    panelScale: number;
+    uiScale: number;
 };
 
 type RendererStatus = {
@@ -977,44 +991,39 @@ function HomeContent() {
         };
     }, [activeConnection, connectionSeed]);
 
-    const sendChatMessage = useCallback(
-        (message: string) => {
-            const trimmedMessage = message.trim();
-            const normalizedMessage =
-                trimmedMessage.length === 0 ? message : trimmedMessage;
+    const sendChatMessage = useCallback((message: string) => {
+        const trimmedMessage = message.trim();
+        const normalizedMessage =
+            trimmedMessage.length === 0 ? message : trimmedMessage;
 
-            if (normalizedMessage.length === 0) {
-                return false;
-            }
+        if (normalizedMessage.length === 0) {
+            return false;
+        }
 
-            const commandText = trimmedMessage
-                .split(/\s+/, 1)[0]
-                ?.toLowerCase();
+        const commandText = trimmedMessage.split(/\s+/, 1)[0]?.toLowerCase();
 
-            if (commandText === "/estadisticas" || commandText === "/stats") {
-                setCharacterStatsOpen(true);
-                setCharacterStatsLoading(true);
-                setCharacterStatsSnapshot(null);
-            }
+        if (commandText === "/estadisticas" || commandText === "/stats") {
+            setCharacterStatsOpen(true);
+            setCharacterStatsLoading(true);
+            setCharacterStatsSnapshot(null);
+        }
 
-            if (
-                commandText === "/retos" &&
-                trimmedMessage.localeCompare("/retos", "es", {
-                    sensitivity: "base",
-                }) === 0
-            ) {
-                setRetosOpen(true);
-                return true;
-            }
-
-            setChatRequest((current) => ({
-                message: normalizedMessage,
-                token: (current?.token ?? 0) + 1,
-            }));
+        if (
+            commandText === "/retos" &&
+            trimmedMessage.localeCompare("/retos", "es", {
+                sensitivity: "base",
+            }) === 0
+        ) {
+            setRetosOpen(true);
             return true;
-        },
-        [],
-    );
+        }
+
+        setChatRequest((current) => ({
+            message: normalizedMessage,
+            token: (current?.token ?? 0) + 1,
+        }));
+        return true;
+    }, []);
 
     const requestRetosState = useCallback(
         (
@@ -1598,6 +1607,46 @@ function HomeContent() {
             canvasHeight: scaledCanvasSize,
         };
     }, [hudScale, isFullscreen, viewport.height, viewport.width]);
+
+    const isImmersive = isFullscreen && isDesktopConsoleLayout;
+
+    const immersiveLayout = useMemo<ImmersiveLayout | null>(() => {
+        if (!isImmersive || !viewport.width || !viewport.height) {
+            return null;
+        }
+
+        const uiScale = Math.max(0.8, Math.min(1.4, viewport.height / 1080));
+        const panelScale = Math.max(
+            0.6,
+            Math.min(
+                uiScale,
+                (viewport.height - IMMERSIVE_PANEL_PADDING * 2) /
+                    Math.max(1, rightColumnSize.height),
+            ),
+        );
+        const panelWidth =
+            Math.round(RIGHT_PANEL_WIDTH * panelScale) +
+            IMMERSIVE_PANEL_PADDING * 2;
+        const mapWidth = Math.max(1, viewport.width - panelWidth);
+        const mapHeight = viewport.height;
+
+        // Se ve el mismo alto que en el modo clásico y se gana ancho, hasta el límite del servidor.
+        let pixelScale = mapHeight / (VIEWPORT_TILE_HEIGHT * TILE_SIZE);
+        if (mapWidth / pixelScale > IMMERSIVE_MAX_VIEW_TILES_X * TILE_SIZE) {
+            pixelScale = mapWidth / (IMMERSIVE_MAX_VIEW_TILES_X * TILE_SIZE);
+        }
+
+        return {
+            mapWidth,
+            mapHeight,
+            viewPixels: {
+                width: Math.round(mapWidth / pixelScale),
+                height: Math.round(mapHeight / pixelScale),
+            },
+            panelScale,
+            uiScale,
+        };
+    }, [isImmersive, rightColumnSize.height, viewport.height, viewport.width]);
 
     const toggleFullscreen = useCallback(async () => {
         const shellElement = gameShellRef.current;
@@ -2639,88 +2688,102 @@ function HomeContent() {
             }}
         >
             <div
-                className={`pointer-events-none fixed inset-0 z-20 flex justify-center overflow-hidden ${
-                    isFullscreen ? "items-start" : "items-center"
+                className={`pointer-events-none fixed inset-0 z-20 flex overflow-hidden ${
+                    immersiveLayout
+                        ? "items-start justify-start"
+                        : isFullscreen
+                          ? "items-start justify-center"
+                          : "items-center justify-center"
                 }`}
                 style={{
-                    padding: `${shellTopPadding}px ${shellHorizontalPadding}px ${shellBottomPadding}px`,
+                    padding: immersiveLayout
+                        ? 0
+                        : `${shellTopPadding}px ${shellHorizontalPadding}px ${shellBottomPadding}px`,
                 }}
             >
                 <div
                     className="pointer-events-auto flex flex-col"
-                    style={{ gap: `${HUD_GAP}px` }}
+                    style={{ gap: immersiveLayout ? 0 : `${HUD_GAP}px` }}
                 >
                     {isDesktopConsoleLayout ? (
-                        <ScaledHudFrame
-                            scale={hudScale}
-                            baseWidth={CANVAS_BASE_WIDTH + 156 + HUD_GAP}
-                            onMeasure={handleTopHudSectionMeasure}
+                        <div
+                            className={
+                                immersiveLayout
+                                    ? "absolute left-[150px] top-3 z-30 opacity-90"
+                                    : undefined
+                            }
                         >
-                            <div
-                                className="pointer-events-auto flex items-start"
-                                style={{ gap: `${HUD_GAP}px` }}
+                            <ScaledHudFrame
+                                scale={immersiveLayout?.uiScale ?? hudScale}
+                                baseWidth={CANVAS_BASE_WIDTH + 156 + HUD_GAP}
+                                onMeasure={handleTopHudSectionMeasure}
                             >
                                 <div
-                                    className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-cyan-200/20 bg-stone-950/72 shadow-2xl backdrop-blur-[2px]"
-                                    style={{
-                                        width: `${CANVAS_BASE_WIDTH}px`,
-                                    }}
+                                    className="pointer-events-auto flex items-start"
+                                    style={{ gap: `${HUD_GAP}px` }}
                                 >
                                     <div
-                                        ref={consoleScrollRef}
-                                        className="h-[126px] overflow-y-auto px-4 py-3 text-xs leading-5 text-stone-200/90"
+                                        className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-cyan-200/20 bg-stone-950/72 shadow-2xl backdrop-blur-[2px]"
+                                        style={{
+                                            width: `${CANVAS_BASE_WIDTH}px`,
+                                        }}
                                     >
-                                        {visibleConsoleEntries.length ? (
-                                            visibleConsoleEntries.map(
-                                                (entry) => (
-                                                    <div
-                                                        key={entry.id}
-                                                        className="break-words"
-                                                        style={{
-                                                            color:
-                                                                entry.color ||
-                                                                "rgba(231, 229, 228, 0.92)",
-                                                        }}
-                                                    >
-                                                        {renderConsoleEntryText(
-                                                            entry.text,
-                                                        )}
-                                                    </div>
-                                                ),
-                                            )
-                                        ) : (
-                                            <div className="text-stone-300/55">
-                                                No hay mensajes en{" "}
-                                                {activeChatTabLabel.toLowerCase()}{" "}
-                                                todavía.
-                                            </div>
-                                        )}
+                                        <div
+                                            ref={consoleScrollRef}
+                                            className="h-[126px] overflow-y-auto px-4 py-3 text-xs leading-5 text-stone-200/90"
+                                        >
+                                            {visibleConsoleEntries.length ? (
+                                                visibleConsoleEntries.map(
+                                                    (entry) => (
+                                                        <div
+                                                            key={entry.id}
+                                                            className="break-words"
+                                                            style={{
+                                                                color:
+                                                                    entry.color ||
+                                                                    "rgba(231, 229, 228, 0.92)",
+                                                            }}
+                                                        >
+                                                            {renderConsoleEntryText(
+                                                                entry.text,
+                                                            )}
+                                                        </div>
+                                                    ),
+                                                )
+                                            ) : (
+                                                <div className="text-stone-300/55">
+                                                    No hay mensajes en{" "}
+                                                    {activeChatTabLabel.toLowerCase()}{" "}
+                                                    todavía.
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="pointer-events-auto h-[126px] w-[156px] shrink-0">
+                                        {chatTabsMenu}
                                     </div>
                                 </div>
-
-                                <div className="pointer-events-auto h-[126px] w-[156px] shrink-0">
-                                    {chatTabsMenu}
-                                </div>
-                            </div>
-                        </ScaledHudFrame>
+                            </ScaledHudFrame>
+                        </div>
                     ) : null}
 
                     <div
                         className="flex items-start"
-                        style={{ gap: `${HUD_GAP}px` }}
+                        style={{ gap: immersiveLayout ? 0 : `${HUD_GAP}px` }}
                     >
                         <div
-                            className="flex flex-col"
+                            className="relative flex flex-col"
                             style={{
-                                width: `${hudLayout.canvasWidth ?? CANVAS_BASE_WIDTH}px`,
+                                width: `${immersiveLayout?.mapWidth ?? hudLayout.canvasWidth ?? CANVAS_BASE_WIDTH}px`,
                                 gap: "12px",
                             }}
                         >
                             <div
                                 className="relative"
                                 style={{
-                                    width: `${hudLayout.canvasWidth ?? CANVAS_BASE_WIDTH}px`,
-                                    height: `${hudLayout.canvasHeight ?? CANVAS_BASE_HEIGHT}px`,
+                                    width: `${immersiveLayout?.mapWidth ?? hudLayout.canvasWidth ?? CANVAS_BASE_WIDTH}px`,
+                                    height: `${immersiveLayout?.mapHeight ?? hudLayout.canvasHeight ?? CANVAS_BASE_HEIGHT}px`,
                                 }}
                             >
                                 <BuffStatusSidebar
@@ -2730,8 +2793,15 @@ function HomeContent() {
                                 <MapRenderer
                                     embedded
                                     mapNumber={selectedMap}
-                                    width={hudLayout.canvasWidth}
-                                    height={hudLayout.canvasHeight}
+                                    width={
+                                        immersiveLayout?.mapWidth ??
+                                        hudLayout.canvasWidth
+                                    }
+                                    height={
+                                        immersiveLayout?.mapHeight ??
+                                        hudLayout.canvasHeight
+                                    }
+                                    viewPixels={immersiveLayout?.viewPixels}
                                     connection={connection}
                                     equipRequest={equipRequest}
                                     useItemClickRequest={useItemClickRequest}
@@ -2886,7 +2956,7 @@ function HomeContent() {
                                               : "16px",
                                     }}
                                 >
-                                    {!isDesktopConsoleLayout
+                                    {!isDesktopConsoleLayout || immersiveLayout
                                         ? fullscreenToggleControl
                                         : null}
                                 </div>
@@ -3095,45 +3165,121 @@ function HomeContent() {
                                 ) : null}
                             </div>
 
-                            {isCharacterSettingsLoading ? (
-                                <ScaledHudFrame
-                                    scale={hudScale}
-                                    baseWidth={CANVAS_BASE_WIDTH}
-                                    onMeasure={handleMacroBarMeasure}
+                            <div
+                                className={
+                                    immersiveLayout
+                                        ? "absolute bottom-3 left-1/2 z-30 -translate-x-1/2"
+                                        : undefined
+                                }
+                            >
+                                {isCharacterSettingsLoading ? (
+                                    <ScaledHudFrame
+                                        scale={
+                                            immersiveLayout?.uiScale ?? hudScale
+                                        }
+                                        baseWidth={CANVAS_BASE_WIDTH}
+                                        onMeasure={handleMacroBarMeasure}
+                                    >
+                                        <div className="flex min-h-20 items-center justify-center rounded-[24px] border border-white/8 bg-stone-950/55 px-4 py-5 text-sm text-stone-400 shadow-xl backdrop-blur-md">
+                                            Cargando macros...
+                                        </div>
+                                    </ScaledHudFrame>
+                                ) : (
+                                    <ScaledHudFrame
+                                        scale={
+                                            immersiveLayout?.uiScale ?? hudScale
+                                        }
+                                        baseWidth={CANVAS_BASE_WIDTH}
+                                        onMeasure={handleMacroBarMeasure}
+                                    >
+                                        <MacroBar
+                                            hud={hud}
+                                            connected={status.connected}
+                                            hotkeySettings={hotkeySettings}
+                                            macros={macros}
+                                            useItemRepeatMs={useItemRepeatMs}
+                                            onMacrosChange={setMacros}
+                                            onUseItem={(slot) =>
+                                                setUseItemURequest(
+                                                    (current) => ({
+                                                        slot,
+                                                        token:
+                                                            (current?.token ??
+                                                                0) + 1,
+                                                    }),
+                                                )
+                                            }
+                                            onRangeAttackRequest={() =>
+                                                setRangeAttackRequest(
+                                                    (current) => ({
+                                                        token:
+                                                            (current?.token ??
+                                                                0) + 1,
+                                                    }),
+                                                )
+                                            }
+                                            onCastSpell={(spell) =>
+                                                setSpellTargetRequest(
+                                                    (current) => ({
+                                                        slot: spell.slot,
+                                                        manaRequired:
+                                                            spell.manaRequired,
+                                                        name: spell.name,
+                                                        token:
+                                                            (current?.token ??
+                                                                0) + 1,
+                                                    }),
+                                                )
+                                            }
+                                            onSendCommand={sendChatMessage}
+                                        />
+                                    </ScaledHudFrame>
+                                )}
+                            </div>
+                        </div>
+
+                        <div
+                            style={
+                                immersiveLayout
+                                    ? {
+                                          padding: `${IMMERSIVE_PANEL_PADDING}px`,
+                                      }
+                                    : undefined
+                            }
+                        >
+                            <ScaledHudFrame
+                                scale={immersiveLayout?.panelScale ?? hudScale}
+                                baseWidth={RIGHT_PANEL_WIDTH}
+                                onMeasure={handleRightColumnMeasure}
+                            >
+                                <div
+                                    className="flex w-[320px] flex-col"
+                                    style={{ gap: "12px" }}
                                 >
-                                    <div className="flex min-h-20 items-center justify-center rounded-[24px] border border-white/8 bg-stone-950/55 px-4 py-5 text-sm text-stone-400 shadow-xl backdrop-blur-md">
-                                        Cargando macros...
-                                    </div>
-                                </ScaledHudFrame>
-                            ) : (
-                                <ScaledHudFrame
-                                    scale={hudScale}
-                                    baseWidth={CANVAS_BASE_WIDTH}
-                                    onMeasure={handleMacroBarMeasure}
-                                >
-                                    <MacroBar
+                                    {isDesktopConsoleLayout &&
+                                    !immersiveLayout ? (
+                                        <div className="pointer-events-none absolute right-0 top-0 z-30 -translate-y-[calc(100%+12px)]">
+                                            {fullscreenToggleControl}
+                                        </div>
+                                    ) : null}
+                                    <InventoryFloatingPanel
                                         hud={hud}
+                                        mapName={status.worldName}
                                         connected={status.connected}
+                                        characterStatsSnapshot={
+                                            characterStatsSnapshot
+                                        }
+                                        panelHeight={`${CANVAS_BASE_HEIGHT}px`}
+                                        portalTarget={gameShellElement}
+                                        selectedSpellSlot={selectedSpellSlot}
                                         hotkeySettings={hotkeySettings}
-                                        macros={macros}
                                         useItemRepeatMs={useItemRepeatMs}
-                                        onMacrosChange={setMacros}
-                                        onUseItem={(slot) =>
-                                            setUseItemURequest((current) => ({
-                                                slot,
-                                                token:
-                                                    (current?.token ?? 0) + 1,
-                                            }))
+                                        soundVolume={soundVolume}
+                                        onHotkeySettingsChange={
+                                            setHotkeySettings
                                         }
-                                        onRangeAttackRequest={() =>
-                                            setRangeAttackRequest(
-                                                (current) => ({
-                                                    token:
-                                                        (current?.token ?? 0) +
-                                                        1,
-                                                }),
-                                            )
-                                        }
+                                        onSoundVolumeChange={setSoundVolume}
+                                        onSelectSpell={setSelectedSpellSlot}
                                         onCastSpell={(spell) =>
                                             setSpellTargetRequest(
                                                 (current) => ({
@@ -3147,319 +3293,292 @@ function HomeContent() {
                                                 }),
                                             )
                                         }
-                                        onSendCommand={sendChatMessage}
-                                    />
-                                </ScaledHudFrame>
-                            )}
-                        </div>
-
-                        <ScaledHudFrame
-                            scale={hudScale}
-                            baseWidth={RIGHT_PANEL_WIDTH}
-                            onMeasure={handleRightColumnMeasure}
-                        >
-                            <div
-                                className="flex w-[320px] flex-col"
-                                style={{ gap: "12px" }}
-                            >
-                                {isDesktopConsoleLayout ? (
-                                    <div className="pointer-events-none absolute right-0 top-0 z-30 -translate-y-[calc(100%+12px)]">
-                                        {fullscreenToggleControl}
-                                    </div>
-                                ) : null}
-                                <InventoryFloatingPanel
-                                    hud={hud}
-                                    mapName={status.worldName}
-                                    connected={status.connected}
-                                    characterStatsSnapshot={
-                                        characterStatsSnapshot
-                                    }
-                                    panelHeight={`${CANVAS_BASE_HEIGHT}px`}
-                                    portalTarget={gameShellElement}
-                                    selectedSpellSlot={selectedSpellSlot}
-                                    hotkeySettings={hotkeySettings}
-                                    useItemRepeatMs={useItemRepeatMs}
-                                    soundVolume={soundVolume}
-                                    onHotkeySettingsChange={setHotkeySettings}
-                                    onSoundVolumeChange={setSoundVolume}
-                                    onSelectSpell={setSelectedSpellSlot}
-                                    onCastSpell={(spell) =>
-                                        setSpellTargetRequest((current) => ({
-                                            slot: spell.slot,
-                                            manaRequired: spell.manaRequired,
-                                            name: spell.name,
-                                            token: (current?.token ?? 0) + 1,
-                                        }))
-                                    }
-                                    onEquipRequest={(slot) =>
-                                        setEquipRequest((current) => ({
-                                            slot,
-                                            token: (current?.token ?? 0) + 1,
-                                        }))
-                                    }
-                                    onUseItemClickRequest={(slot) =>
-                                        setUseItemClickRequest((current) => ({
-                                            slot,
-                                            token: (current?.token ?? 0) + 1,
-                                        }))
-                                    }
-                                    onUseItemURequest={(slot) =>
-                                        setUseItemURequest((current) => ({
-                                            slot,
-                                            token: (current?.token ?? 0) + 1,
-                                        }))
-                                    }
-                                    onMoveInventoryItem={(
-                                        sourceSlot,
-                                        targetSlot,
-                                    ) => {
-                                        setHud((currentHud) => {
-                                            if (!currentHud) {
-                                                return currentHud;
-                                            }
-
-                                            const sourceItem =
-                                                currentHud.inventory.find(
-                                                    (item) =>
-                                                        item.slot ===
-                                                        sourceSlot,
-                                                ) ?? null;
-
-                                            if (!sourceItem) {
-                                                return currentHud;
-                                            }
-
-                                            const nextInventory =
-                                                currentHud.inventory.flatMap(
-                                                    (item) => {
-                                                        if (
-                                                            item.slot ===
-                                                            sourceSlot
-                                                        ) {
-                                                            return [
-                                                                {
-                                                                    ...item,
-                                                                    slot: targetSlot,
-                                                                },
-                                                            ];
-                                                        }
-
-                                                        if (
-                                                            item.slot ===
-                                                            targetSlot
-                                                        ) {
-                                                            return [
-                                                                {
-                                                                    ...item,
-                                                                    slot: sourceSlot,
-                                                                },
-                                                            ];
-                                                        }
-
-                                                        return [item];
-                                                    },
-                                                );
-
-                                            setReorderInventoryRequest(
+                                        onEquipRequest={(slot) =>
+                                            setEquipRequest((current) => ({
+                                                slot,
+                                                token:
+                                                    (current?.token ?? 0) + 1,
+                                            }))
+                                        }
+                                        onUseItemClickRequest={(slot) =>
+                                            setUseItemClickRequest(
                                                 (current) => ({
-                                                    sourceSlot,
-                                                    targetSlot,
+                                                    slot,
                                                     token:
                                                         (current?.token ?? 0) +
                                                         1,
                                                 }),
-                                            );
+                                            )
+                                        }
+                                        onUseItemURequest={(slot) =>
+                                            setUseItemURequest((current) => ({
+                                                slot,
+                                                token:
+                                                    (current?.token ?? 0) + 1,
+                                            }))
+                                        }
+                                        onMoveInventoryItem={(
+                                            sourceSlot,
+                                            targetSlot,
+                                        ) => {
+                                            setHud((currentHud) => {
+                                                if (!currentHud) {
+                                                    return currentHud;
+                                                }
 
-                                            return {
-                                                ...currentHud,
-                                                inventory: nextInventory,
-                                            };
-                                        });
-                                    }}
-                                    onRangeAttackRequest={() =>
-                                        setRangeAttackRequest((current) => ({
-                                            token: (current?.token ?? 0) + 1,
-                                        }))
-                                    }
-                                    onMoveSpell={(slot, direction) => {
-                                        setHud((currentHud) => {
-                                            if (!currentHud) {
-                                                return currentHud;
-                                            }
+                                                const sourceItem =
+                                                    currentHud.inventory.find(
+                                                        (item) =>
+                                                            item.slot ===
+                                                            sourceSlot,
+                                                    ) ?? null;
 
-                                            const sortedSpells =
-                                                currentHud.spells
-                                                    .slice()
-                                                    .sort(
-                                                        (left, right) =>
-                                                            left.slot -
-                                                            right.slot,
+                                                if (!sourceItem) {
+                                                    return currentHud;
+                                                }
+
+                                                const nextInventory =
+                                                    currentHud.inventory.flatMap(
+                                                        (item) => {
+                                                            if (
+                                                                item.slot ===
+                                                                sourceSlot
+                                                            ) {
+                                                                return [
+                                                                    {
+                                                                        ...item,
+                                                                        slot: targetSlot,
+                                                                    },
+                                                                ];
+                                                            }
+
+                                                            if (
+                                                                item.slot ===
+                                                                targetSlot
+                                                            ) {
+                                                                return [
+                                                                    {
+                                                                        ...item,
+                                                                        slot: sourceSlot,
+                                                                    },
+                                                                ];
+                                                            }
+
+                                                            return [item];
+                                                        },
                                                     );
-                                            const spellIndex =
-                                                sortedSpells.findIndex(
-                                                    (spell) =>
-                                                        spell.slot === slot,
+
+                                                setReorderInventoryRequest(
+                                                    (current) => ({
+                                                        sourceSlot,
+                                                        targetSlot,
+                                                        token:
+                                                            (current?.token ??
+                                                                0) + 1,
+                                                    }),
                                                 );
 
-                                            if (spellIndex === -1) {
-                                                return currentHud;
-                                            }
-
-                                            const targetIndex =
-                                                direction === "up"
-                                                    ? spellIndex - 1
-                                                    : spellIndex + 1;
-                                            const targetSpell =
-                                                sortedSpells[targetIndex] ??
-                                                null;
-
-                                            if (!targetSpell) {
-                                                return currentHud;
-                                            }
-
-                                            const movingSpell =
-                                                currentHud.spells.find(
-                                                    (spell) =>
-                                                        spell.slot === slot,
-                                                ) ?? null;
-
-                                            if (!movingSpell) {
-                                                return currentHud;
-                                            }
-
-                                            const nextSpells =
-                                                currentHud.spells.map(
-                                                    (spell) => {
-                                                        if (
-                                                            spell.slot === slot
-                                                        ) {
-                                                            return {
-                                                                ...spell,
-                                                                slot: targetSpell.slot,
-                                                            };
-                                                        }
-
-                                                        if (
-                                                            spell.slot ===
-                                                            targetSpell.slot
-                                                        ) {
-                                                            return {
-                                                                ...spell,
-                                                                slot,
-                                                            };
-                                                        }
-
-                                                        return spell;
-                                                    },
-                                                );
-
-                                            const movedSpell =
-                                                nextSpells.find(
-                                                    (spell) =>
-                                                        spell.idSpell ===
-                                                        movingSpell.idSpell,
-                                                ) ?? null;
-
-                                            setSelectedSpellSlot(
-                                                movedSpell?.slot ??
-                                                    targetSpell.slot,
-                                            );
-                                            setReorderSpellRequest(
+                                                return {
+                                                    ...currentHud,
+                                                    inventory: nextInventory,
+                                                };
+                                            });
+                                        }}
+                                        onRangeAttackRequest={() =>
+                                            setRangeAttackRequest(
                                                 (current) => ({
-                                                    sourceSlot: slot,
-                                                    targetSlot:
-                                                        targetSpell.slot,
                                                     token:
                                                         (current?.token ?? 0) +
                                                         1,
                                                 }),
-                                            );
+                                            )
+                                        }
+                                        onMoveSpell={(slot, direction) => {
+                                            setHud((currentHud) => {
+                                                if (!currentHud) {
+                                                    return currentHud;
+                                                }
 
-                                            return {
-                                                ...currentHud,
-                                                spells: nextSpells,
-                                            };
-                                        });
-                                    }}
-                                    onDropRequest={(slot, amount) =>
-                                        setDropRequest((current) => ({
-                                            slot,
-                                            amount,
-                                            token: (current?.token ?? 0) + 1,
-                                        }))
-                                    }
-                                    onSendCommand={sendChatMessage}
-                                    selectedCharacterId={
-                                        authSession?.selectedCharacterId ?? null
-                                    }
-                                />
+                                                const sortedSpells =
+                                                    currentHud.spells
+                                                        .slice()
+                                                        .sort(
+                                                            (left, right) =>
+                                                                left.slot -
+                                                                right.slot,
+                                                        );
+                                                const spellIndex =
+                                                    sortedSpells.findIndex(
+                                                        (spell) =>
+                                                            spell.slot === slot,
+                                                    );
 
-                                <div className="pointer-events-auto flex w-full flex-col gap-2 rounded-2xl border border-stone-700/80 bg-stone-950/84 px-4 py-3 text-xs text-stone-100 shadow-2xl backdrop-blur-md">
-                                    <div className="flex items-center justify-center gap-3 uppercase tracking-[0.22em]">
-                                        {authSession ? (
-                                            <>
-                                                <Link
-                                                    href="/arenas"
-                                                    prefetch={false}
-                                                    onClick={(event) => {
-                                                        if (!arenaMode) {
-                                                            return;
+                                                if (spellIndex === -1) {
+                                                    return currentHud;
+                                                }
+
+                                                const targetIndex =
+                                                    direction === "up"
+                                                        ? spellIndex - 1
+                                                        : spellIndex + 1;
+                                                const targetSpell =
+                                                    sortedSpells[targetIndex] ??
+                                                    null;
+
+                                                if (!targetSpell) {
+                                                    return currentHud;
+                                                }
+
+                                                const movingSpell =
+                                                    currentHud.spells.find(
+                                                        (spell) =>
+                                                            spell.slot === slot,
+                                                    ) ?? null;
+
+                                                if (!movingSpell) {
+                                                    return currentHud;
+                                                }
+
+                                                const nextSpells =
+                                                    currentHud.spells.map(
+                                                        (spell) => {
+                                                            if (
+                                                                spell.slot ===
+                                                                slot
+                                                            ) {
+                                                                return {
+                                                                    ...spell,
+                                                                    slot: targetSpell.slot,
+                                                                };
+                                                            }
+
+                                                            if (
+                                                                spell.slot ===
+                                                                targetSpell.slot
+                                                            ) {
+                                                                return {
+                                                                    ...spell,
+                                                                    slot,
+                                                                };
+                                                            }
+
+                                                            return spell;
+                                                        },
+                                                    );
+
+                                                const movedSpell =
+                                                    nextSpells.find(
+                                                        (spell) =>
+                                                            spell.idSpell ===
+                                                            movingSpell.idSpell,
+                                                    ) ?? null;
+
+                                                setSelectedSpellSlot(
+                                                    movedSpell?.slot ??
+                                                        targetSpell.slot,
+                                                );
+                                                setReorderSpellRequest(
+                                                    (current) => ({
+                                                        sourceSlot: slot,
+                                                        targetSlot:
+                                                            targetSpell.slot,
+                                                        token:
+                                                            (current?.token ??
+                                                                0) + 1,
+                                                    }),
+                                                );
+
+                                                return {
+                                                    ...currentHud,
+                                                    spells: nextSpells,
+                                                };
+                                            });
+                                        }}
+                                        onDropRequest={(slot, amount) =>
+                                            setDropRequest((current) => ({
+                                                slot,
+                                                amount,
+                                                token:
+                                                    (current?.token ?? 0) + 1,
+                                            }))
+                                        }
+                                        onSendCommand={sendChatMessage}
+                                        selectedCharacterId={
+                                            authSession?.selectedCharacterId ??
+                                            null
+                                        }
+                                    />
+
+                                    <div className="pointer-events-auto flex w-full flex-col gap-2 rounded-2xl border border-stone-700/80 bg-stone-950/84 px-4 py-3 text-xs text-stone-100 shadow-2xl backdrop-blur-md">
+                                        <div className="flex items-center justify-center gap-3 uppercase tracking-[0.22em]">
+                                            {authSession ? (
+                                                <>
+                                                    <Link
+                                                        href="/arenas"
+                                                        prefetch={false}
+                                                        onClick={(event) => {
+                                                            if (!arenaMode) {
+                                                                return;
+                                                            }
+
+                                                            event.preventDefault();
+                                                            void leaveArenaRoom();
+                                                        }}
+                                                        className="text-amber-300 transition hover:text-amber-200"
+                                                    >
+                                                        {arenaMode &&
+                                                        arenaLeavePending
+                                                            ? "Saliendo..."
+                                                            : "Arenas"}
+                                                    </Link>
+                                                    <Link
+                                                        href={
+                                                            switchCharacterHref
                                                         }
-
-                                                        event.preventDefault();
-                                                        void leaveArenaRoom();
-                                                    }}
-                                                    className="text-amber-300 transition hover:text-amber-200"
-                                                >
-                                                    {arenaMode &&
-                                                    arenaLeavePending
-                                                        ? "Saliendo..."
-                                                        : "Arenas"}
-                                                </Link>
-                                                <Link
-                                                    href={switchCharacterHref}
-                                                    prefetch={false}
-                                                    onClick={
-                                                        handleSwitchCharacterClick
-                                                    }
-                                                    className="text-cyan-300 transition hover:text-cyan-200"
-                                                >
-                                                    {switchCharacterLabel}
-                                                </Link>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Link
-                                                    href="/login"
-                                                    prefetch={false}
-                                                    className="text-cyan-300 transition hover:text-cyan-200"
-                                                >
-                                                    Login
-                                                </Link>
-                                                <Link
-                                                    href="/register"
-                                                    prefetch={false}
-                                                    className="text-stone-400 transition hover:text-stone-200"
-                                                >
-                                                    Registro
-                                                </Link>
-                                            </>
-                                        )}
-                                    </div>
-
-                                    {authSession && !arenaMode ? (
-                                        <div className="text-center text-[11px] leading-5 tracking-[0.04em] text-stone-300/85">
-                                            En zona insegura cerrá el personaje
-                                            con{" "}
-                                            <span className="text-amber-300">
-                                                /salir
-                                            </span>{" "}
-                                            o quedará conectado por 10 segundos.
+                                                        prefetch={false}
+                                                        onClick={
+                                                            handleSwitchCharacterClick
+                                                        }
+                                                        className="text-cyan-300 transition hover:text-cyan-200"
+                                                    >
+                                                        {switchCharacterLabel}
+                                                    </Link>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Link
+                                                        href="/login"
+                                                        prefetch={false}
+                                                        className="text-cyan-300 transition hover:text-cyan-200"
+                                                    >
+                                                        Login
+                                                    </Link>
+                                                    <Link
+                                                        href="/register"
+                                                        prefetch={false}
+                                                        className="text-stone-400 transition hover:text-stone-200"
+                                                    >
+                                                        Registro
+                                                    </Link>
+                                                </>
+                                            )}
                                         </div>
-                                    ) : null}
+
+                                        {authSession && !arenaMode ? (
+                                            <div className="text-center text-[11px] leading-5 tracking-[0.04em] text-stone-300/85">
+                                                En zona insegura cerrá el
+                                                personaje con{" "}
+                                                <span className="text-amber-300">
+                                                    /salir
+                                                </span>{" "}
+                                                o quedará conectado por 10
+                                                segundos.
+                                            </div>
+                                        ) : null}
+                                    </div>
                                 </div>
-                            </div>
-                        </ScaledHudFrame>
+                            </ScaledHudFrame>
+                        </div>
                     </div>
                 </div>
             </div>
