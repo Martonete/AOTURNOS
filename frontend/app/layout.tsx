@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Cinzel, Geist, Geist_Mono, IM_Fell_English } from "next/font/google";
 import AppChrome from "@/components/AppChrome";
 import {
     buildPageMetadata,
@@ -17,6 +17,20 @@ const geistSans = Geist({
 const geistMono = Geist_Mono({
     variable: "--font-geist-mono",
     subsets: ["latin"],
+});
+
+/** Tipografías del HUD de combate: títulos grabados y crónica manuscrita. */
+const cinzel = Cinzel({
+    variable: "--font-cinzel",
+    subsets: ["latin"],
+    weight: ["500", "700", "900"],
+});
+
+const fell = IM_Fell_English({
+    variable: "--font-fell",
+    subsets: ["latin"],
+    weight: "400",
+    style: ["normal", "italic"],
 });
 
 export const metadata: Metadata = {
@@ -70,7 +84,7 @@ export default function RootLayout({
     return (
         <html lang="es-AR">
             <body
-                className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+                className={`${geistSans.variable} ${geistMono.variable} ${cinzel.variable} ${fell.variable} antialiased`}
             >
                 <AppChrome>{children}</AppChrome>
             </body>

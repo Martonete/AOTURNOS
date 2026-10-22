@@ -4,126 +4,21 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
     ABILITIES,
-    abilityCosts,
     ENCOUNTERS,
     ITEM_AP,
     MEDITATE_AP,
-    STATUSES,
-    behaviorOf,
-    type Behavior,
     type Combatant,
+    type Forecast,
 } from "@aoturnos/game-core";
 import { BattleScene } from "./BattleScene";
-import { battleStore, describeError, useBattleStore } from "./battleStore";
+import { battleStore, useBattleStore } from "./battleStore";
+import { FateThread, SealTurn, TurnHerald } from "./hud/Fate";
+import { Grimoire } from "./hud/Grimoire";
+import { HeroSigil, type SpendPreview } from "./hud/HeroSigil";
+import { Augury, Bestiary, Chronicle, Talismans } from "./hud/Panels";
 
 const glass =
     "rounded-2xl border border-white/15 bg-slate-950/55 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-md";
-
-function Bar({ value, max, color, label }: { value: number; max: number; color: string; label: string }) {
-    if (max <= 0) return null;
-    const pct = Math.max(0, Math.min(100, (value / max) * 100));
-    return (
-        <div className="w-full">
-            <div className="mb-0.5 flex justify-between text-[10px] uppercase tracking-wider text-white/70">
-                <span>{label}</span>
-                <span className="tabular-nums">
-                    {value}/{max}
-                </span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-black/50">
-                <div className={`h-full rounded-full transition-[width] duration-300 ${color}`} style={{ width: `${pct}%` }} />
-            </div>
-        </div>
-    );
-}
-
-function Pips({ value, max, color }: { value: number; max: number; color: string }) {
-    return (
-        <div className="flex gap-1">
-            {Array.from({ length: max }, (_, i) => (
-                <span key={i} className={`h-2.5 w-2.5 rotate-45 rounded-[2px] ${i < value ? color : "bg-white/10"}`} />
-            ))}
-        </div>
-    );
-}
-
-function StatusChips({ unit }: { unit: Combatant }) {
-    if (unit.statuses.length === 0) return null;
-    return (
-        <div className="flex flex-wrap gap-1">
-            {unit.statuses.map((s) => {
-                const def = STATUSES[s.id];
-                const buff = def?.kind === "buff";
-                return (
-                    <span
-                        key={s.id}
-                        className={`rounded-md px-1.5 py-0.5 text-[10px] ${buff ? "bg-sky-500/25 text-sky-100" : "bg-fuchsia-500/25 text-fuchsia-100"}`}
-                    >
-                        {def?.name ?? s.id} {s.turnsLeft}t{s.stacks > 1 ? ` ×${s.stacks}` : ""}
-                    </span>
-                );
-            })}
-        </div>
-    );
-}
-
-const BEHAVIOR_LABEL: Record<Behavior, string> = {
-    charger: "Agresivo: va directo al más cercano",
-    flanker: "Manada: te rodea y busca tu espalda",
-    skirmisher: "Hostigador: pega y se aleja",
-    kiter: "A distancia: mantiene la distancia y huye si lo encierran",
-    brute: "Bruto: avanza sin detenerse",
-    guardian: "Protector: cuida a sus aliados",
-    coward: "Malherido: intenta escapar",
-};
-
-/** Ficha del combatiente bajo el cursor: cómo se mueve, qué alcance tiene y qué hechizos usa. */
-function UnitInspector({ unit }: { unit: Combatant }) {
-    const enemy = unit.team === "enemies";
-    const behavior = behaviorOf(unit);
-    return (
-        <div className={`${glass} pointer-events-none max-h-full w-72 overflow-hidden p-3 text-xs`}>
-            <div className="flex items-baseline justify-between">
-                <span className={`text-sm font-semibold ${enemy ? "text-rose-200" : "text-sky-200"}`}>{unit.name}</span>
-                <span className="text-[10px] uppercase tracking-wider text-white/50">{unit.family ?? `Nv ${unit.stats.level}`}</span>
-            </div>
-            {enemy && <div className="mt-0.5 text-[11px] text-amber-100/80">{BEHAVIOR_LABEL[behavior]}</div>}
-            <div className="mt-2">
-                <Bar value={unit.res.hp} max={unit.res.maxHp} color={enemy ? "bg-rose-400" : "bg-emerald-400"} label="Vida" />
-            </div>
-            <div className="mt-1.5 flex gap-3 text-[11px] text-white/70">
-                <span>
-                    <span className="text-amber-200">{unit.res.maxAp}</span> PA
-                </span>
-                <span>
-                    <span className="text-sky-200">{unit.res.maxMp}</span> PM
-                </span>
-                {unit.tags.includes("zoneOfControl") && <span title="Salir de su lado cuesta 1 PM más">Placaje</span>}
-                {unit.tags.includes("undead") && <span className="text-fuchsia-200">No muerto</span>}
-            </div>
-            <div className="mt-2 space-y-1">
-                {unit.abilities.map((id) => {
-                    const a = ABILITIES[id];
-                    if (!a) return null;
-                    const range = a.target === "self" ? "propio" : a.minRange === a.maxRange ? `${a.maxRange}c` : `${a.minRange}-${a.maxRange}c`;
-                    return (
-                        <div key={id} className="rounded-md bg-white/5 px-2 py-1">
-                            <div className="flex justify-between">
-                                <span className="font-semibold text-white/90">{a.name}</span>
-                                <span className="text-white/50">
-                                    {a.apCost} PA · {range}
-                                    {a.cooldown ? ` · ${a.cooldown}t` : ""}
-                                </span>
-                            </div>
-                            <div className="text-[10px] text-white/55">{a.description}</div>
-                        </div>
-                    );
-                })}
-            </div>
-            {enemy && <div className="mt-2 text-[10px] text-white/45">Rojo: hasta dónde camina. Naranja: hasta dónde llega a pegar.</div>}
-        </div>
-    );
-}
 
 /** Botón para iniciar un combate de prueba fuera de la batalla. */
 function BattleLauncher() {
@@ -158,16 +53,6 @@ function BattleLauncher() {
             </button>
         </div>
     );
-}
-
-function Countdown({ deadline }: { deadline: number }) {
-    const [now, setNow] = useState(() => Date.now());
-    useEffect(() => {
-        const id = setInterval(() => setNow(Date.now()), 250);
-        return () => clearInterval(id);
-    }, []);
-    const seconds = Math.max(0, Math.ceil((deadline - now) / 1000));
-    return <span className={`tabular-nums ${seconds <= 10 ? "text-rose-300" : "text-white/80"}`}>{seconds}s</span>;
 }
 
 /** Dónde montar la batalla: dentro del elemento en pantalla completa si lo hay, así se ve encima de todo. */
@@ -210,9 +95,10 @@ export function BattleOverlay() {
 
     const hostRef = useRef<HTMLDivElement>(null);
     const sceneRef = useRef<BattleScene | null>(null);
-    const logRef = useRef<HTMLDivElement>(null);
-    const [hitPreview, setHitPreview] = useState<{ name: string; chance: number } | null>(null);
+    const [augury, setAugury] = useState<{ target: Combatant; forecast: Forecast; abilityName: string } | null>(null);
     const [inspected, setInspected] = useState<Combatant | null>(null);
+    const [hoverAbility, setHoverAbility] = useState<string | null>(null);
+    const [herald, setHerald] = useState<{ text: string; mine: boolean; nonce: number } | null>(null);
     const [bottomHeight, setBottomHeight] = useState(0);
     const { target: portalTarget, fullscreen } = useFullscreenTarget();
     const inBattle = stage !== "idle";
@@ -223,7 +109,12 @@ export function BattleOverlay() {
         sceneRef.current = scene;
         scene.init().catch((error) => console.error("[battle] no se pudo iniciar la escena", error));
         const id = setInterval(() => {
-            setHitPreview(scene.previewHitChance());
+            setAugury((prev) => {
+                const next = scene.previewForecast();
+                if (prev && next && prev.target.id === next.target.id && prev.abilityName === next.abilityName && prev.forecast.min === next.forecast.min && prev.forecast.hitChance === next.forecast.hitChance)
+                    return prev;
+                return next;
+            });
             setInspected((prev) => {
                 const next = scene.hoverInfo();
                 // Mantiene la misma referencia mientras no cambie, para no re-renderizar de más.
@@ -238,7 +129,7 @@ export function BattleOverlay() {
         // Al entrar o salir de pantalla completa la escena se vuelve a montar en el nuevo contenedor.
     }, [inBattle, portalTarget]);
 
-    // El tablero se centra en el espacio que dejan libre los paneles de arriba y de abajo.
+    // El tablero se centra en el espacio que dejan libre el hilo del destino arriba y el grimorio abajo.
     const observerRef = useRef<ResizeObserver | null>(null);
     const bottomRef = (panel: HTMLDivElement | null) => {
         observerRef.current?.disconnect();
@@ -249,7 +140,7 @@ export function BattleOverlay() {
     };
 
     useEffect(() => {
-        sceneRef.current?.setInsets(72, bottomHeight > 0 ? bottomHeight + 24 : 24);
+        sceneRef.current?.setInsets(120, bottomHeight > 0 ? bottomHeight + 12 : 24);
     });
 
     useEffect(() => {
@@ -275,13 +166,30 @@ export function BattleOverlay() {
         return () => clearTimeout(id);
     }, [notice]);
 
-    useEffect(() => {
-        logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
-    }, [log]);
-
     const phase = state?.phase;
     const me = state && you ? state.combatants[you] : undefined;
+    const activeId = phase && "actorId" in phase ? phase.actorId : null;
     const myTurn = phase?.kind === "awaitingAction" && phase.actorId === you && !busy && !pending;
+    const deadline = phase?.kind === "awaitingAction" ? phase.deadline : null;
+
+    // El heraldo anuncia cada cambio de turno una vez que la escena terminó de animar lo anterior.
+    const announcedRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (stage !== "active" || busy || !state || !activeId || phase?.kind !== "awaitingAction") return;
+        const key = `${state.round}:${activeId}`;
+        if (announcedRef.current === key) return;
+        announcedRef.current = key;
+        const actor = state.combatants[activeId];
+        if (!actor) return;
+        const mine = activeId === you;
+        setHerald({ text: mine ? "Tu turno" : `Turno de ${actor.name}`, mine, nonce: Date.now() });
+    }, [stage, busy, state, activeId, phase?.kind, you]);
+
+    useEffect(() => {
+        if (!herald) return;
+        const id = setTimeout(() => setHerald(null), 1500);
+        return () => clearTimeout(id);
+    }, [herald]);
 
     const act = (action: "endTurn" | "defend" | "meditate") => {
         if (!me) return;
@@ -298,7 +206,10 @@ export function BattleOverlay() {
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
             if (e.key === "Escape") battleStore.setMode({ kind: "move" });
             if (!myTurn || !me) return;
-            if (e.key === "e" || e.key === "E") act("endTurn");
+            if (e.key === "e" || e.key === "E" || e.key === " ") {
+                e.preventDefault();
+                act("endTurn");
+            }
             const n = Number(e.key);
             if (n >= 1 && n <= 9 && me.abilities[n - 1]) battleStore.setMode({ kind: "ability", abilityId: me.abilities[n - 1] });
         };
@@ -310,226 +221,100 @@ export function BattleOverlay() {
     if (!portalTarget) return null;
 
     const order = state ? state.turnOrder.map((id) => state.combatants[id]).filter(Boolean) : [];
-    const activeId = phase && "actorId" in phase ? phase.actorId : null;
+    const selectedId = mode.kind === "ability" ? mode.abilityId : null;
+    const previewId = hoverAbility ?? selectedId;
+    const previewAbility = previewId ? ABILITIES[previewId] : undefined;
+    const spend: SpendPreview | null =
+        myTurn && previewAbility ? { ap: previewAbility.apCost, mana: previewAbility.mana, stamina: previewAbility.stamina } : null;
+    const exhausted = Boolean(me && myTurn && me.res.ap < 2 && me.res.mp === 0);
 
-    const sideMaxHeight = `calc(100% - 5rem - ${bottomHeight + 24}px)`;
+    const hint = !me
+        ? ""
+        : myTurn
+          ? mode.kind === "move"
+              ? "Caminá por las casillas azules o jugá una carta del grimorio."
+              : `Elegí el objetivo de ${ABILITIES[mode.abilityId]?.name}. Esc o clic derecho para cancelar.`
+          : !me.alive
+            ? "Caíste. Un clérigo todavía puede alzarte."
+            : "Los demás mueven sus piezas…";
 
     return createPortal(
         <div className="pointer-events-auto fixed inset-0 z-[1000] select-none overflow-hidden bg-black text-white">
             <div ref={hostRef} className="absolute inset-0" />
-
-            {/* Línea de iniciativa */}
-            <div className="absolute left-1/2 top-3 flex max-w-[92%] -translate-x-1/2 items-center gap-2">
-                <div className={`${glass} flex items-center gap-1.5 overflow-x-auto px-2 py-1.5`}>
-                    <span className="px-1 text-[10px] uppercase tracking-widest text-white/50">Ronda {state?.round ?? 0}</span>
-                    {order.map((c) => {
-                        const active = c.id === activeId;
-                        const hpPct = (c.res.hp / Math.max(1, c.res.maxHp)) * 100;
-                        return (
-                            <div
-                                key={c.id}
-                                className={`min-w-[74px] rounded-lg border px-2 py-1 text-[11px] transition-all ${
-                                    active ? "scale-105 border-amber-300/80 bg-amber-300/15" : "border-white/10 bg-white/5"
-                                } ${c.alive ? "" : "opacity-35 grayscale"}`}
-                            >
-                                <div className={`truncate font-semibold ${c.team === "heroes" ? "text-sky-200" : "text-rose-200"}`}>
-                                    {c.id === you ? "★ " : ""}
-                                    {c.name}
-                                </div>
-                                <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-black/50">
-                                    <div
-                                        className={`h-full ${c.team === "heroes" ? "bg-emerald-400" : "bg-rose-400"}`}
-                                        style={{ width: `${hpPct}%` }}
-                                    />
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-                {phase?.kind === "awaitingAction" && (
-                    <div className={`${glass} px-3 py-2 text-sm`}>
-                        <Countdown deadline={phase.deadline} />
-                    </div>
-                )}
-            </div>
-
-            <button
-                type="button"
-                onClick={toggleFullscreen}
-                title={fullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
-                className={`${glass} absolute right-3 top-3 px-3 py-2 text-xs text-white/80 hover:text-white`}
-            >
-                {fullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
-            </button>
-
-            {/* Registro */}
+            {/* Viñeta: oscurece los bordes para que el HUD se lea sobre el mapa */}
             <div
-                ref={logRef}
-                style={{ maxHeight: sideMaxHeight }}
-                className={`${glass} absolute right-3 top-20 hidden w-64 overflow-y-auto p-2 text-xs md:block`}
-            >
-                {log.map((entry) => (
-                    <div
-                        key={entry.id}
-                        className={
-                            entry.tone === "good"
-                                ? "text-emerald-200"
-                                : entry.tone === "bad"
-                                  ? "text-rose-200"
-                                  : entry.tone === "warn"
-                                    ? "text-amber-200"
-                                    : "text-white/75"
-                        }
-                    >
-                        {entry.text}
-                    </div>
-                ))}
+                className="pointer-events-none absolute inset-0"
+                style={{ background: "radial-gradient(120% 90% at 50% 45%, transparent 55%, rgba(0,0,0,0.55) 100%)" }}
+            />
+
+            {/* Hilo del destino */}
+            <div className="pointer-events-none absolute left-1/2 top-3 max-w-[92%] -translate-x-1/2">
+                <FateThread order={order} activeId={activeId} you={you} round={state?.round ?? 1} deadline={deadline} />
             </div>
 
-            {inspected && stage === "active" && (
-                <div className="pointer-events-none absolute left-3 top-20 flex" style={{ maxHeight: sideMaxHeight }}>
-                    <UnitInspector unit={inspected} />
+            {/* Augurio */}
+            {augury && (
+                <div className="pointer-events-none absolute left-1/2 top-[124px] -translate-x-1/2">
+                    <Augury target={augury.target} forecast={augury.forecast} abilityName={augury.abilityName} />
                 </div>
             )}
 
-            {hitPreview && (
-                <div className={`${glass} absolute left-1/2 top-20 -translate-x-1/2 px-3 py-1 text-sm`}>
-                    {hitPreview.name}: <span className="font-bold text-amber-200">{hitPreview.chance}%</span> de impacto
+            <div className="absolute right-3 top-3 flex flex-col items-end gap-2">
+                <button
+                    type="button"
+                    onClick={toggleFullscreen}
+                    title={fullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
+                    className="grim-parchment rounded-full px-3 py-1 font-rune text-[10px] uppercase tracking-[0.2em] text-amber-100/70 hover:text-amber-50"
+                >
+                    {fullscreen ? "Ventana" : "Pantalla completa"}
+                </button>
+                <div className="hidden md:block">
+                    <Chronicle log={log} />
+                </div>
+            </div>
+
+            {inspected && stage === "active" && (
+                <div className="pointer-events-none absolute left-3 top-24">
+                    <Bestiary unit={inspected} me={me} />
                 </div>
             )}
 
             {notice && (
-                <div className="absolute left-1/2 top-1/3 -translate-x-1/2 rounded-xl bg-rose-950/80 px-4 py-2 text-sm text-rose-100 shadow-lg">
+                <div className="grim-rise absolute left-1/2 top-1/3 -translate-x-1/2 rounded-lg border border-rose-500/50 bg-[#2a0707]/90 px-4 py-2 font-rune text-sm tracking-wide text-rose-100 shadow-lg">
                     {notice}
                 </div>
             )}
 
-            {/* Ficha y acciones */}
+            {herald && stage === "active" && <TurnHerald key={herald.nonce} text={herald.text} mine={herald.mine} nonce={herald.nonce} />}
+
+            {/* Sello del héroe, grimorio y talismanes */}
             {me && stage !== "results" && (
-                <div ref={bottomRef} className="absolute bottom-3 left-1/2 flex w-[min(1280px,96%)] -translate-x-1/2 gap-3">
-                    <div className={`${glass} flex w-56 shrink-0 flex-col gap-1.5 p-3`}>
-                        <div className="flex items-baseline justify-between">
-                            <span className="font-semibold text-sky-100">{me.name}</span>
-                            <span className="text-[10px] text-white/50">Nv {me.stats.level}</span>
-                        </div>
-                        <Bar value={me.res.hp} max={me.res.maxHp} color="bg-gradient-to-r from-emerald-500 to-lime-300" label="Vida" />
-                        <Bar value={me.res.mana} max={me.res.maxMana} color="bg-gradient-to-r from-blue-600 to-sky-300" label="Maná" />
-                        <Bar value={me.res.stamina} max={me.res.maxStamina} color="bg-gradient-to-r from-amber-600 to-yellow-300" label="Energía" />
-                        <div className="mt-1 flex items-center justify-between text-[10px] uppercase text-white/60">
-                            <span>PA</span>
-                            <Pips value={me.res.ap} max={me.res.maxAp} color="bg-amber-300" />
-                        </div>
-                        <div className="flex items-center justify-between text-[10px] uppercase text-white/60">
-                            <span>PM</span>
-                            <Pips value={me.res.mp} max={me.res.maxMp} color="bg-sky-300" />
-                        </div>
-                        <StatusChips unit={me} />
+                <div ref={bottomRef} className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 px-4 pb-3">
+                    <HeroSigil unit={me} preview={spend} myTurn={myTurn} />
+
+                    <div className="flex min-w-0 flex-1 flex-col items-center">
+                        <div className="mb-1 rounded-full bg-black/55 px-3 py-0.5 font-chronicle text-sm italic text-amber-100/85">{hint}</div>
+                        <Grimoire
+                            unit={me}
+                            myTurn={myTurn}
+                            selectedId={selectedId}
+                            onSelect={(id) => battleStore.setMode(selectedId === id ? { kind: "move" } : { kind: "ability", abilityId: id })}
+                            onHover={setHoverAbility}
+                        />
                     </div>
 
-                    <div className={`${glass} flex min-w-0 flex-1 flex-col gap-2 p-3`}>
-                        <div className="flex items-center justify-between text-xs text-white/60">
-                            <span>
-                                {myTurn
-                                    ? mode.kind === "move"
-                                        ? "Tu turno: tocá una casilla azul para moverte o elegí una habilidad."
-                                        : `Elegí el objetivo de ${ABILITIES[mode.abilityId]?.name}. Esc o clic derecho cancela.`
-                                    : !me.alive
-                                      ? "Caíste. Un clérigo puede resucitarte."
-                                      : "Esperando turno…"}
-                            </span>
+                    <div className="pointer-events-auto flex items-end gap-3 pb-2">
+                        <Talismans unit={me} myTurn={myTurn} itemAp={ITEM_AP} meditateAp={MEDITATE_AP} onPotion={drinkPotion} onAct={act} />
+                        <div className="flex flex-col items-center gap-2">
+                            <SealTurn enabled={myTurn} exhausted={exhausted} deadline={myTurn ? deadline : null} onSeal={() => act("endTurn")} />
                             <button
                                 type="button"
-                                className="rounded-md px-2 py-0.5 text-rose-300/80 hover:bg-rose-500/15"
+                                className="font-rune text-[10px] uppercase tracking-[0.2em] text-rose-300/60 hover:text-rose-200"
                                 onClick={() => {
                                     if (window.confirm("¿Rendirte y abandonar el combate?")) battleStore.send({ kind: "forfeit" });
                                 }}
                             >
                                 Rendirse
-                            </button>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                            {me.abilities.map((id, index) => {
-                                const ability = ABILITIES[id];
-                                if (!ability) return null;
-                                const error = abilityCosts(me, ability);
-                                const cooldown = me.cooldowns[id] ?? 0;
-                                const selected = mode.kind === "ability" && mode.abilityId === id;
-                                return (
-                                    <button
-                                        key={id}
-                                        type="button"
-                                        disabled={!myTurn || Boolean(error)}
-                                        title={`${ability.description}${error ? `\n${describeError(error)}` : ""}`}
-                                        onClick={() => battleStore.setMode(selected ? { kind: "move" } : { kind: "ability", abilityId: id })}
-                                        className={`relative rounded-xl border px-2.5 py-1.5 text-left text-xs transition ${
-                                            selected
-                                                ? "border-amber-300 bg-amber-300/20 shadow-[0_0_16px_rgba(252,211,77,0.35)]"
-                                                : "border-white/10 bg-white/5 hover:bg-white/10"
-                                        } disabled:cursor-not-allowed disabled:opacity-40`}
-                                    >
-                                        <div className="font-semibold">
-                                            <span className="mr-1 text-white/40">{index + 1}</span>
-                                            {ability.name}
-                                        </div>
-                                        <div className="text-[10px] text-white/55">
-                                            {ability.apCost} PA
-                                            {ability.mana > 0 ? ` · ${ability.mana} maná` : ""}
-                                            {ability.stamina > 0 ? ` · ${ability.stamina} en.` : ""}
-                                            {` · ${ability.minRange === ability.maxRange ? ability.maxRange : `${ability.minRange}-${ability.maxRange}`}c`}
-                                        </div>
-                                        {cooldown > 0 && (
-                                            <span className="absolute -right-1 -top-1 rounded-full bg-slate-900 px-1.5 text-[10px] text-amber-200">
-                                                {cooldown}
-                                            </span>
-                                        )}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                        <div className="flex flex-wrap gap-1.5 text-xs">
-                            <button
-                                type="button"
-                                disabled={!myTurn || (me.consumables.pocionVida ?? 0) <= 0 || me.res.ap < ITEM_AP}
-                                onClick={() => drinkPotion("pocionVida")}
-                                className="rounded-lg border border-rose-300/30 bg-rose-500/10 px-2.5 py-1 hover:bg-rose-500/20 disabled:opacity-40"
-                            >
-                                Poción roja ×{me.consumables.pocionVida ?? 0}
-                            </button>
-                            {me.res.maxMana > 0 && (
-                                <>
-                                    <button
-                                        type="button"
-                                        disabled={!myTurn || (me.consumables.pocionMana ?? 0) <= 0 || me.res.ap < ITEM_AP}
-                                        onClick={() => drinkPotion("pocionMana")}
-                                        className="rounded-lg border border-sky-300/30 bg-sky-500/10 px-2.5 py-1 hover:bg-sky-500/20 disabled:opacity-40"
-                                    >
-                                        Poción azul ×{me.consumables.pocionMana ?? 0}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        disabled={!myTurn || me.movedThisTurn || me.res.ap < MEDITATE_AP}
-                                        onClick={() => act("meditate")}
-                                        className="rounded-lg border border-indigo-300/30 bg-indigo-500/10 px-2.5 py-1 hover:bg-indigo-500/20 disabled:opacity-40"
-                                    >
-                                        Meditar
-                                    </button>
-                                </>
-                            )}
-                            <button
-                                type="button"
-                                disabled={!myTurn}
-                                onClick={() => act("defend")}
-                                className="rounded-lg border border-slate-300/30 bg-slate-500/10 px-2.5 py-1 hover:bg-slate-500/20 disabled:opacity-40"
-                            >
-                                Defender
-                            </button>
-                            <button
-                                type="button"
-                                disabled={!myTurn}
-                                onClick={() => act("endTurn")}
-                                className="ml-auto rounded-lg border border-amber-300/50 bg-amber-400/20 px-3 py-1 font-semibold text-amber-100 hover:bg-amber-400/30 disabled:opacity-40"
-                            >
-                                Fin de turno (E)
                             </button>
                         </div>
                     </div>
@@ -543,36 +328,48 @@ export function BattleOverlay() {
                 }`}
             >
                 <div className="text-center">
-                    <div className="text-xs uppercase tracking-[0.5em] text-amber-200/70">Encuentro</div>
-                    <div className="mt-2 font-serif text-4xl font-bold text-amber-100 drop-shadow-[0_0_24px_rgba(252,211,77,0.5)]">
+                    <div className="font-rune text-xs uppercase tracking-[0.6em] text-amber-200/70">Se desenvainan las armas</div>
+                    <div className="mt-3 font-rune text-5xl font-black uppercase tracking-[0.12em] text-amber-100 drop-shadow-[0_0_28px_rgba(252,211,77,0.55)]">
                         {encounter}
                     </div>
+                    <div className="mx-auto mt-4 h-px w-64 bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
                 </div>
             </div>
 
             {/* Resultados */}
             {stage === "results" && result && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/55">
-                    <div className={`${glass} w-80 p-6 text-center`}>
+                <div className="absolute inset-0 flex items-center justify-center bg-black/65">
+                    <div className="grim-parchment grim-rise w-96 rounded-2xl p-7 text-center">
+                        <div className="font-rune text-[11px] uppercase tracking-[0.5em] text-amber-200/60">Fin de la batalla</div>
                         <div
-                            className={`font-serif text-3xl font-bold ${
-                                result.winner === "heroes" ? "text-amber-200" : "text-rose-300"
+                            className={`mt-2 font-rune text-4xl font-black uppercase tracking-[0.1em] ${
+                                result.winner === "heroes" ? "text-amber-100" : "text-rose-300"
                             }`}
+                            style={{ textShadow: result.winner === "heroes" ? "0 0 24px rgba(245,197,106,0.7)" : "0 0 18px rgba(255,90,74,0.6)" }}
                         >
-                            {result.winner === "heroes" ? "¡Victoria!" : result.winner === "draw" ? "Empate" : "Derrota"}
+                            {result.winner === "heroes" ? "Victoria" : result.winner === "draw" ? "Tablas" : "Derrota"}
                         </div>
+                        <div className="mx-auto mt-3 h-px w-48 bg-gradient-to-r from-transparent via-amber-400/70 to-transparent" />
                         {result.winner === "heroes" ? (
-                            <div className="mt-4 space-y-1 text-sm text-white/85">
-                                <div>+{result.exp} de experiencia</div>
-                                <div>+{result.gold} de oro</div>
+                            <div className="mt-4 flex justify-center gap-6 font-rune">
+                                <div>
+                                    <div className="text-2xl font-black text-emerald-200">+{result.exp}</div>
+                                    <div className="text-[10px] uppercase tracking-[0.3em] text-amber-100/50">Experiencia</div>
+                                </div>
+                                <div>
+                                    <div className="text-2xl font-black text-amber-200">+{result.gold}</div>
+                                    <div className="text-[10px] uppercase tracking-[0.3em] text-amber-100/50">Oro</div>
+                                </div>
                             </div>
                         ) : (
-                            <div className="mt-4 text-sm text-white/70">Volvés al mundo con lo justo para seguir.</div>
+                            <div className="mt-4 font-chronicle text-base italic text-amber-50/75">
+                                Volvés al mundo malherido, con lo justo para seguir.
+                            </div>
                         )}
                         <button
                             type="button"
                             onClick={() => battleStore.close()}
-                            className="mt-6 rounded-xl border border-amber-300/50 bg-amber-400/20 px-5 py-2 font-semibold text-amber-100 hover:bg-amber-400/30"
+                            className="mt-6 rounded-full border-2 border-amber-400/70 bg-gradient-to-b from-[#5a3a17] to-[#1c1007] px-7 py-2 font-rune text-sm font-bold uppercase tracking-[0.25em] text-amber-100 hover:brightness-125"
                         >
                             Continuar
                         </button>

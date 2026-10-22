@@ -12,8 +12,7 @@ import {
     ABILITIES,
     areaTiles,
     checkTarget,
-    flankOf,
-    hitChance,
+    forecastAbility,
     manhattan,
     pathTo,
     reachableTiles,
@@ -25,6 +24,7 @@ import {
     type BattleState,
     type Combatant,
     type DamageSchool,
+    type Forecast,
     type Tile,
 } from "@aoturnos/game-core";
 import { BattleCharacterSprite, buildMapDiorama, createSpellFx, loadBattleDBs, type BattleDBs } from "./battleAssets";
@@ -590,17 +590,18 @@ export class BattleScene {
         return this.hoveredCombatant();
     }
 
-    /** Probabilidad de impacto para la habilidad elegida sobre la casilla bajo el cursor (la usa el HUD). */
-    previewHitChance(): { name: string; chance: number } | null {
+    /** Augurio para la habilidad elegida sobre el combatiente bajo el cursor (lo muestra el HUD). */
+    previewForecast(): { target: Combatant; forecast: Forecast; abilityName: string } | null {
         const state = this.state;
         const me = this.myCombatant();
         const mode = battleStore.get().mode;
         if (!state || !me || !this.hover || mode.kind !== "ability") return null;
         const ability = ABILITIES[mode.abilityId];
-        if (!ability?.effects.some((e) => e.kind === "weapon")) return null;
+        if (!ability) return null;
         const target = Object.values(state.combatants).find((c) => c.alive && sameTile(c.pos, this.hover!));
-        if (!target || target.team === me.team) return null;
-        return { name: target.name, chance: Math.round(hitChance(me, target, flankOf(me, target))) };
+        if (!target || checkTarget(state, me, ability, target.pos)) return null;
+        const forecast = forecastAbility(me, target, ability);
+        return forecast ? { target, forecast, abilityName: ability.name } : null;
     }
 
     /* ---------------------------- animación ---------------------------- */
