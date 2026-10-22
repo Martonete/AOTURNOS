@@ -1,0 +1,20 @@
+{
+    "name": "@aoturnos/game-core",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Reglas puras del combate táctico por turnos, compartidas por server y frontend",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "files": ["dist"],
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "dev": "tsc -p tsconfig.json --watch",
+        "test": "vitest run",
+        "simulate": "tsx scripts/simulate.ts"
+    },
+    "devDependencies": {
+        "tsx": "^4.22.1",
+        "typescript": "^6.0.3",
+        "vitest": "^4.1.6"
+    }
+}
