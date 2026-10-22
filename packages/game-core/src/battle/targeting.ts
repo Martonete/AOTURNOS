@@ -124,6 +124,9 @@ export function checkTarget(state: BattleState, caster: Combatant, ability: Abil
         }
         case "any":
             break;
+        case "emptyTile":
+            if (!isFree(state, target)) return "invalid_target";
+            break;
     }
 
     if (ability.dash && !dashLanding(state, caster, target)) return "invalid_path";

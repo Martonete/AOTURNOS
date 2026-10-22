@@ -4,7 +4,8 @@ import { hasLineOfSight, manhattan, pathTo, reachableTiles, tileKey } from "./gr
 import { critChance, FLANK_DAMAGE, flankOf, hitChance, mitigate, spellDamage, weaponDamage } from "./rules";
 import { hasStatus } from "./statuses";
 import { abilityCosts, affectedCombatants, checkTarget } from "./targeting";
-import type { BattleAction, BattleEvent, BattleState, Combatant, StatusId, Tile } from "./types";
+import { STATUSES } from "../data/statuses";
+import type { BattleAction, BattleEvent, BattleState, Behavior, Combatant, StatusId, Tile } from "./types";
 
 /**
  * IA por utilidad: prueba cada habilidad desde cada casilla alcanzable, estima el valor
@@ -25,6 +26,102 @@ const STATUS_VALUE: Partial<Record<StatusId, number>> = {
     torpeza: 10,
     fuerza: 12,
     celeridad: 12,
+    ralentizado: 14,
+    caparazon: 14,
+};
+
+/* ------------------------------------------------------------------ */
+/* Personalidades de movimiento                                        */
+/* ------------------------------------------------------------------ */
+
+function hpRatio(c: Combatant): number {
+    return c.res.hp / Math.max(1, c.res.maxHp);
+}
+
+/** Personalidad efectiva: los no-brutos que están malheridos pasan a escapar. */
+export function behaviorOf(c: Combatant): Behavior {
+    const base: Behavior =
+        c.behavior ?? (c.archetype === "melee" ? "charger" : c.archetype === "support" ? "guardian" : "kiter");
+    if (c.team === "enemies" && base !== "brute" && !c.tags.includes("boss") && hpRatio(c) < 0.25) return "coward";
+    return base;
+}
+
+function rangeOf(c: Combatant, behavior: Behavior): [number, number] {
+    if (c.preferredRange) return c.preferredRange;
+    if (behavior === "kiter") return [3, 5];
+    if (behavior === "skirmisher") return [2, 4];
+    return [1, 1];
+}
+
+/** Casilla detrás del enemigo según hacia dónde mira (1 arriba, 2 abajo, 3 derecha, 4 izquierda). */
+function backOf(enemy: Combatant): Tile {
+    const d = { 1: [0, 1], 2: [0, -1], 3: [-1, 0], 4: [1, 0] }[enemy.heading] ?? [0, 1];
+    return { x: enemy.pos.x + d[0], y: enemy.pos.y + d[1] };
+}
+
+/**
+ * Cuánto le gusta a `actor` estar parado en `tile`, según su personalidad.
+ * Es lo que hace que una manada rodee, que un arquero se aleje y que un coloso avance sin más.
+ */
+export function positionalValue(state: BattleState, actor: Combatant, tile: Tile, behavior = behaviorOf(actor)): number {
+    const enemies = enemiesOf(state, actor);
+    if (enemies.length === 0) return 0;
+    let nearest = enemies[0];
+    let d = Infinity;
+    let adjacent = 0;
+    for (const e of enemies) {
+        const dist = manhattan(e.pos, tile);
+        if (dist < d) {
+            d = dist;
+            nearest = e;
+        }
+        if (dist === 1) adjacent += 1;
+    }
+    const [lo, hi] = rangeOf(actor, behavior);
+    const inBand = (w: number) => (d < lo ? -(lo - d) * w : d > hi ? -(d - hi) * 2 : 4);
+    const sight = enemies.some((e) => hasLineOfSight(state.grid, tile, e.pos)) ? 3 : 0;
+
+    switch (behavior) {
+        case "charger":
+            return -d * 2;
+        case "brute":
+            return -d * 2.5;
+        case "flanker": {
+            let v = -d * 2;
+            const back = backOf(nearest);
+            if (back.x === tile.x && back.y === tile.y) v += 7;
+            else if (d === 1 && nearest.pos.x !== tile.x && nearest.pos.y !== tile.y) v += 0;
+            else if (d === 1) v += 3;
+            // La manada se reparte: no le gusta pegarse a otro miembro.
+            for (const ally of alliesOf(state, actor)) {
+                if (ally.id !== actor.id && manhattan(ally.pos, tile) === 1) v -= 2;
+            }
+            return v;
+        }
+        case "kiter":
+            return inBand(7) - adjacent * 10 + sight;
+        case "skirmisher":
+            return inBand(5) - adjacent * 6 + sight;
+        case "guardian": {
+            const hurt = alliesOf(state, actor)
+                .filter((a) => a.id !== actor.id)
+                .sort((a, b) => hpRatio(a) - hpRatio(b))[0];
+            return -(hurt ? manhattan(hurt.pos, tile) : 0) * 2 - Math.max(0, d - 3);
+        }
+        case "coward":
+            return d * 4 - adjacent * 15;
+    }
+}
+
+/** Peso de la posición al elegir desde dónde atacar. */
+const POSITION_WEIGHT: Record<Behavior, number> = {
+    charger: 0,
+    brute: 0,
+    flanker: 0.6,
+    kiter: 1,
+    skirmisher: 0.3,
+    guardian: 0.5,
+    coward: 1.5,
 };
 
 function enemiesOf(state: BattleState, c: Combatant): Combatant[] {
@@ -37,6 +134,11 @@ function alliesOf(state: BattleState, c: Combatant): Combatant[] {
 
 function expectedValue(state: BattleState, actor: Combatant, ability: AbilityDef, target: Tile): number {
     let value = 0;
+    if (ability.effects.some((e) => e.kind === "teleport")) {
+        // Parpadeo: vale lo que mejora la posición, y solo si la mejora es clara.
+        const gain = positionalValue(state, actor, target) - positionalValue(state, actor, actor.pos);
+        value += gain > 6 ? gain : -5;
+    }
     for (const victim of affectedCombatants(state, actor, ability, target)) {
         const sign = victim.team === actor.team ? -1.5 : 1;
         let hitP = 1;
@@ -66,8 +168,29 @@ function expectedValue(state: BattleState, actor: Combatant, ability: AbilityDef
                 }
                 case "status":
                     if (!hasStatus(victim, effect.status) && !victim.immunities.includes(effect.status)) {
-                        value += sign * (STATUS_VALUE[effect.status] ?? 6) * hitP;
+                        // Un buff vale en un aliado y un debuff en un enemigo; al revés, resta.
+                        const good = (STATUSES[effect.status].kind === "buff") === (victim.team === actor.team);
+                        value += (good ? 1 : -1.5) * (STATUS_VALUE[effect.status] ?? 6) * hitP;
                     }
+                    break;
+                case "push":
+                    if (victim.team !== actor.team) {
+                        value += effect.tiles * 3 * hitP;
+                        // Para quien pelea a distancia, sacarse de encima a alguien vale mucho.
+                        const b = behaviorOf(actor);
+                        if ((b === "kiter" || b === "skirmisher") && manhattan(victim.pos, actor.pos) === 1) value += 12 * hitP;
+                    }
+                    break;
+                case "pull":
+                    if (victim.team !== actor.team) {
+                        const b = behaviorOf(actor);
+                        value += (b === "kiter" || b === "coward" ? -6 : 8) * hitP;
+                    }
+                    break;
+                case "drain":
+                    value += ((1 - hpRatio(actor)) * effect.pct) / 4;
+                    break;
+                case "teleport":
                     break;
                 case "cleanse":
                     if (effect.statuses.some((s) => hasStatus(victim, s))) value += 25;
@@ -91,7 +214,8 @@ function expectedValue(state: BattleState, actor: Combatant, ability: AbilityDef
 }
 
 function positionPenalty(state: BattleState, actor: Combatant, tile: Tile): number {
-    if (actor.archetype === "melee" || actor.archetype === "support") return 0;
+    // Las personalidades con criterio propio ya pesan la cercanía en positionalValue.
+    if (actor.behavior || actor.archetype === "melee" || actor.archetype === "support") return 0;
     let penalty = 0;
     for (const enemy of enemiesOf(state, actor)) {
         if (manhattan(enemy.pos, tile) === 1) penalty += 12;
@@ -102,6 +226,8 @@ function positionPenalty(state: BattleState, actor: Combatant, tile: Tile): numb
 function bestPlan(state: BattleState, actor: Combatant): Plan | null {
     const reach = reachableTiles(state, actor, actor.res.mp);
     const origin = actor.pos;
+    const behavior = behaviorOf(actor);
+    const weight = POSITION_WEIGHT[behavior];
     let best: Plan | null = null;
 
     for (const id of actor.abilities) {
@@ -115,7 +241,11 @@ function bestPlan(state: BattleState, actor: Combatant): Plan | null {
                 for (let dy = -span; dy <= span; dy++) {
                     const target = { x: node.tile.x + dx, y: node.tile.y + dy };
                     if (checkTarget(state, actor, ability, target)) continue;
-                    const score = expectedValue(state, actor, ability, target) - node.cost * 0.3 - positionPenalty(state, actor, node.tile);
+                    const score =
+                        expectedValue(state, actor, ability, target) -
+                        node.cost * 0.3 +
+                        (weight > 0 ? weight * positionalValue(state, actor, node.tile, behavior) : 0) -
+                        positionPenalty(state, actor, node.tile);
                     if (score > 0 && (!best || score > best.score)) {
                         best = { score, moveTo: node.cost > 0 ? node.tile : null, ability, target };
                     }
@@ -127,25 +257,23 @@ function bestPlan(state: BattleState, actor: Combatant): Plan | null {
     return best;
 }
 
-/** Casilla a la que conviene ir cuando no hay nada útil para hacer desde aquí. */
+/** Casilla a la que conviene ir cuando no hay nada útil para hacer desde aquí (acercarse, rodear o alejarse). */
 function repositionTarget(state: BattleState, actor: Combatant): Tile | null {
     const enemies = enemiesOf(state, actor);
     if (enemies.length === 0 || actor.res.mp === 0) return null;
     const reach = reachableTiles(state, actor, actor.res.mp);
-    const preferred = actor.archetype === "melee" ? 1 : actor.archetype === "support" ? 3 : 4;
+    let behavior = behaviorOf(actor);
+    // Pega y se aleja: si ya no le quedan PA para otro golpe, se retira a su distancia.
+    if (behavior === "skirmisher" && actor.res.ap < 3) behavior = "kiter";
+    const current = positionalValue(state, actor, actor.pos, behavior);
     let best: { tile: Tile; score: number } | null = null;
 
     for (const node of reach.values()) {
-        const nearest = Math.min(...enemies.map((e) => manhattan(e.pos, node.tile)));
-        let score = -Math.abs(nearest - preferred) * 3 - positionPenalty(state, actor, node.tile);
-        if (actor.archetype !== "melee" && enemies.some((e) => hasLineOfSight(state.grid, node.tile, e.pos))) score += 2;
-        if (actor.archetype === "support") {
-            const hurt = alliesOf(state, actor).sort((a, b) => a.res.hp / a.res.maxHp - b.res.hp / b.res.maxHp)[0];
-            if (hurt) score -= manhattan(hurt.pos, node.tile);
-        }
+        const score = positionalValue(state, actor, node.tile, behavior) - node.cost * 0.1 - positionPenalty(state, actor, node.tile);
         if (!best || score > best.score) best = { tile: node.tile, score };
     }
-    return best && tileKey(best.tile) !== tileKey(actor.pos) ? best.tile : null;
+    if (!best || tileKey(best.tile) === tileKey(actor.pos) || best.score <= current + 0.5) return null;
+    return best.tile;
 }
 
 /** Elige la próxima acción de la IA, o null para pasar el turno. */

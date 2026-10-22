@@ -1,5 +1,6 @@
 import { CLASSES } from "../data/classes";
 import { ENEMIES } from "../data/enemies";
+import { applyMonsterFamily, monsterFamilyFor } from "../data/monsters";
 import { seedFromString } from "./rng";
 import type { BattleGrid, BattleState, ClassId, Combatant, ItemKind, Team, Tile } from "./types";
 
@@ -90,11 +91,15 @@ export function createHero(input: HeroInput, team: Team = "heroes"): Combatant {
 export function createEnemy(templateId: string, index: number, team: Team = "enemies"): Combatant {
     const t = ENEMIES[templateId];
     if (!t) throw new Error(`Plantilla de enemigo desconocida: ${templateId}`);
+    return applyMonsterFamily(baseEnemy(t, index, team), monsterFamilyFor(t.name, { caster: t.archetype === "caster" }));
+}
+
+function baseEnemy(t: (typeof ENEMIES)[string], index: number, team: Team): Combatant {
     return {
-        id: `npc:${templateId}:${index}`,
+        id: `npc:${t.id}:${index}`,
         name: t.name,
         team,
-        source: { kind: "npc", templateId },
+        source: { kind: "npc", templateId: t.id },
         appearance: { ...t.appearance },
         pos: { x: 0, y: 0 },
         heading: team === "heroes" ? 1 : 2,
@@ -243,11 +248,9 @@ export function createEnemyFromNpc(input: WorldNpcInput, index: number, team: Te
     const maxHp = Math.max(1, Math.round(input.maxHp));
     const caster = template ? template.archetype === "caster" : Boolean(input.caster);
     const undead = template ? template.tags.includes("undead") : UNDEAD_NAME.test(input.name);
-    const base = template
-        ? createEnemy(template.id, index, team)
-        : createEnemy("lobo", index, team);
+    const base = baseEnemy(template ?? ENEMIES.lobo, index, team);
 
-    return {
+    const enemy: Combatant = {
         ...base,
         id: `npc:${input.worldId}`,
         name: input.name,
@@ -271,8 +274,7 @@ export function createEnemyFromNpc(input: WorldNpcInput, index: number, team: Te
             defense: Math.max(0, Math.round(input.def)),
             magicResist: input.magicResist ?? base.stats.magicResist,
         },
-        abilities: template ? [...template.abilities] : caster ? ["golpe", "proyectil_magico"] : ["golpe"],
         tags: undead && !base.tags.includes("undead") ? [...base.tags, "undead"] : [...base.tags],
-        archetype: template?.archetype ?? (caster ? "caster" : "melee"),
     };
+    return applyMonsterFamily(enemy, monsterFamilyFor(input.name, { caster }));
 }

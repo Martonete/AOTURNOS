@@ -8,6 +8,8 @@ import {
     ITEM_AP,
     MEDITATE_AP,
     STATUSES,
+    behaviorOf,
+    type Behavior,
     type Combatant,
 } from "@aoturnos/game-core";
 import { BattleScene } from "./BattleScene";
@@ -60,6 +62,64 @@ function StatusChips({ unit }: { unit: Combatant }) {
                     </span>
                 );
             })}
+        </div>
+    );
+}
+
+const BEHAVIOR_LABEL: Record<Behavior, string> = {
+    charger: "Agresivo: va directo al más cercano",
+    flanker: "Manada: te rodea y busca tu espalda",
+    skirmisher: "Hostigador: pega y se aleja",
+    kiter: "A distancia: mantiene la distancia y huye si lo encierran",
+    brute: "Bruto: avanza sin detenerse",
+    guardian: "Protector: cuida a sus aliados",
+    coward: "Malherido: intenta escapar",
+};
+
+/** Ficha del combatiente bajo el cursor: cómo se mueve, qué alcance tiene y qué hechizos usa. */
+function UnitInspector({ unit }: { unit: Combatant }) {
+    const enemy = unit.team === "enemies";
+    const behavior = behaviorOf(unit);
+    return (
+        <div className={`${glass} pointer-events-none absolute left-3 top-20 w-72 p-3 text-xs`}>
+            <div className="flex items-baseline justify-between">
+                <span className={`text-sm font-semibold ${enemy ? "text-rose-200" : "text-sky-200"}`}>{unit.name}</span>
+                <span className="text-[10px] uppercase tracking-wider text-white/50">{unit.family ?? `Nv ${unit.stats.level}`}</span>
+            </div>
+            {enemy && <div className="mt-0.5 text-[11px] text-amber-100/80">{BEHAVIOR_LABEL[behavior]}</div>}
+            <div className="mt-2">
+                <Bar value={unit.res.hp} max={unit.res.maxHp} color={enemy ? "bg-rose-400" : "bg-emerald-400"} label="Vida" />
+            </div>
+            <div className="mt-1.5 flex gap-3 text-[11px] text-white/70">
+                <span>
+                    <span className="text-amber-200">{unit.res.maxAp}</span> PA
+                </span>
+                <span>
+                    <span className="text-sky-200">{unit.res.maxMp}</span> PM
+                </span>
+                {unit.tags.includes("zoneOfControl") && <span title="Salir de su lado cuesta 1 PM más">Placaje</span>}
+                {unit.tags.includes("undead") && <span className="text-fuchsia-200">No muerto</span>}
+            </div>
+            <div className="mt-2 space-y-1">
+                {unit.abilities.map((id) => {
+                    const a = ABILITIES[id];
+                    if (!a) return null;
+                    const range = a.target === "self" ? "propio" : a.minRange === a.maxRange ? `${a.maxRange}c` : `${a.minRange}-${a.maxRange}c`;
+                    return (
+                        <div key={id} className="rounded-md bg-white/5 px-2 py-1">
+                            <div className="flex justify-between">
+                                <span className="font-semibold text-white/90">{a.name}</span>
+                                <span className="text-white/50">
+                                    {a.apCost} PA · {range}
+                                    {a.cooldown ? ` · ${a.cooldown}t` : ""}
+                                </span>
+                            </div>
+                            <div className="text-[10px] text-white/55">{a.description}</div>
+                        </div>
+                    );
+                })}
+            </div>
+            {enemy && <div className="mt-2 text-[10px] text-white/45">Rojo: hasta dónde camina. Naranja: hasta dónde llega a pegar.</div>}
         </div>
     );
 }
@@ -125,6 +185,7 @@ export function BattleOverlay() {
     const sceneRef = useRef<BattleScene | null>(null);
     const logRef = useRef<HTMLDivElement>(null);
     const [hitPreview, setHitPreview] = useState<{ name: string; chance: number } | null>(null);
+    const [inspected, setInspected] = useState<Combatant | null>(null);
     const inBattle = stage !== "idle";
 
     useEffect(() => {
@@ -132,7 +193,14 @@ export function BattleOverlay() {
         const scene = new BattleScene(hostRef.current);
         sceneRef.current = scene;
         scene.init().catch((error) => console.error("[battle] no se pudo iniciar la escena", error));
-        const id = setInterval(() => setHitPreview(scene.previewHitChance()), 120);
+        const id = setInterval(() => {
+            setHitPreview(scene.previewHitChance());
+            setInspected((prev) => {
+                const next = scene.hoverInfo();
+                // Mantiene la misma referencia mientras no cambie, para no re-renderizar de más.
+                return prev && next && prev.id === next.id && prev.res.hp === next.res.hp && prev.statuses.length === next.statuses.length ? prev : next;
+            });
+        }, 120);
         return () => {
             clearInterval(id);
             scene.destroy();
@@ -257,6 +325,8 @@ export function BattleOverlay() {
                     </div>
                 ))}
             </div>
+
+            {inspected && stage === "active" && <UnitInspector unit={inspected} />}
 
             {hitPreview && (
                 <div className={`${glass} absolute left-1/2 top-20 -translate-x-1/2 px-3 py-1 text-sm`}>

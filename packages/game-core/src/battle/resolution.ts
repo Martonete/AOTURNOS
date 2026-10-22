@@ -1,6 +1,6 @@
 import { ABILITIES, type AbilityDef } from "../data/abilities";
 import { applyStatus, dealDamage, heal, removeStatus } from "./effects";
-import { headingBetween, manhattan, pathCost, sameTile } from "./grid";
+import { DIRECTIONS, headingBetween, isFree, manhattan, pathCost, sameTile } from "./grid";
 import type { Rng } from "./rng";
 import {
     critChance,
@@ -112,13 +112,53 @@ function resolveAbility(state: BattleState, actor: Combatant, ability: AbilityDe
         affected: affected.map((c) => c.id),
     });
 
-    for (const victim of affected) {
-        events.push(...applyEffects(actor, victim, ability, rng));
+    if (ability.effects.some((e) => e.kind === "teleport") && isFree(state, target)) {
+        const from = { ...actor.pos };
+        actor.pos = { ...target };
+        events.push({ t: "teleported", actorId: actor.id, from, to: { ...target } });
+    }
+
+    // Los empujes se resuelven del más lejano al más cercano para que no choquen entre sí.
+    const ordered = [...affected].sort((a, b) => manhattan(actor.pos, b.pos) - manhattan(actor.pos, a.pos));
+    for (const victim of ordered) {
+        events.push(...applyEffects(state, actor, victim, ability, rng));
     }
     return events;
 }
 
-function applyEffects(actor: Combatant, victim: Combatant, ability: AbilityDef, rng: Rng): BattleEvent[] {
+/** Daño al chocar contra un obstáculo, por casilla de empuje que quedó sin recorrer. */
+const COLLISION_DAMAGE = 7;
+
+/**
+ * Desplaza a la víctima en línea: alejándose del lanzador (push) o hacia él (pull).
+ * Si algo la frena antes de terminar, recibe daño por choque.
+ */
+function forcedMove(state: BattleState, actor: Combatant, victim: Combatant, tiles: number, away: boolean): BattleEvent[] {
+    if (!victim.alive || sameTile(actor.pos, victim.pos)) return [];
+    const heading = away ? headingBetween(actor.pos, victim.pos) : headingBetween(victim.pos, actor.pos);
+    const dir = DIRECTIONS.find((d) => d.heading === heading)!;
+    const path: Tile[] = [];
+    let cur = victim.pos;
+    let blocked = 0;
+    for (let i = 0; i < tiles; i++) {
+        const next = { x: cur.x + dir.dx, y: cur.y + dir.dy };
+        if (!away && sameTile(next, actor.pos)) break;
+        if (!isFree(state, next)) {
+            blocked = tiles - i;
+            break;
+        }
+        path.push(next);
+        cur = next;
+    }
+    const events: BattleEvent[] = [];
+    if (path.length > 0) victim.pos = { ...cur };
+    const collided = away && blocked > 0;
+    if (path.length > 0 || collided) events.push({ t: "pushed", targetId: victim.id, path, collided });
+    if (collided) events.push(...dealDamage(victim, actor.id, COLLISION_DAMAGE * blocked, "physical", { flank: "front" }));
+    return events;
+}
+
+function applyEffects(state: BattleState, actor: Combatant, victim: Combatant, ability: AbilityDef, rng: Rng): BattleEvent[] {
     const events: BattleEvent[] = [];
     const flank = flankOf(actor, victim);
     const distance = manhattan(actor.pos, victim.pos);
@@ -166,6 +206,20 @@ function applyEffects(actor: Combatant, victim: Combatant, ability: AbilityDef, 
             case "cleanse":
                 for (const id of effect.statuses) events.push(...removeStatus(victim, id));
                 break;
+            case "push":
+            case "pull":
+                events.push(...forcedMove(state, actor, victim, effect.tiles, effect.kind === "push"));
+                break;
+            case "teleport":
+                break;
+            case "drain": {
+                const dealt = events.reduce(
+                    (sum, e) => (e.t === "damaged" && e.targetId === victim.id && e.sourceId === actor.id ? sum + e.amount : sum),
+                    0,
+                );
+                if (dealt > 0 && actor.alive) events.push(...heal(actor, actor.id, (dealt * effect.pct) / 100));
+                break;
+            }
             case "revive": {
                 victim.alive = true;
                 victim.res.hp = Math.max(1, Math.round((victim.res.maxHp * effect.hpPct) / 100));

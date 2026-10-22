@@ -12,6 +12,7 @@ export * from "./battle/setup";
 export * from "./data/abilities";
 export * from "./data/classes";
 export * from "./data/enemies";
+export * from "./data/monsters";
 export * from "./data/statuses";
 export * from "./data/encounters";
 export * from "./protocol";

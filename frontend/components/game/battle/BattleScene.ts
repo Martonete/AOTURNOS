@@ -498,6 +498,10 @@ export class BattleScene {
             }
         }
 
+        // Como en Dofus: al pasar el mouse sobre un rival se ve hasta dónde camina y hasta dónde pega.
+        const inspected = this.hoveredCombatant();
+        if (inspected && inspected.team === "enemies" && !this.playing) this.drawThreat(g, state, inspected);
+
         const me = this.myCombatant();
         if (!me || !me.alive || !this.isMyTurn()) {
             if (this.hover) g.rect(this.hover.x * TILE + 0.5, this.hover.y * TILE + 0.5, TILE - 1, TILE - 1).stroke({ color: 0xffffff, alpha: 0.25, width: 1 });
@@ -542,6 +546,41 @@ export class BattleScene {
                 g.rect(t.x * TILE + 1, t.y * TILE + 1, TILE - 2, TILE - 2).fill({ color, alpha: 0.35 }).stroke({ color, width: 1, alpha: 0.9 });
             }
         }
+    }
+
+    private drawThreat(g: Graphics, state: BattleState, enemy: Combatant): void {
+        const reach = reachableTiles(state, enemy, enemy.res.maxMp);
+        const maxRange = Math.max(1, ...enemy.abilities.map((id) => ABILITIES[id]?.maxRange ?? 1));
+        const threat = new Set<string>();
+        for (const node of reach.values()) {
+            for (let dx = -maxRange; dx <= maxRange; dx++) {
+                const span = maxRange - Math.abs(dx);
+                for (let dy = -span; dy <= span; dy++) {
+                    const t = { x: node.tile.x + dx, y: node.tile.y + dy };
+                    if (t.x < 0 || t.y < 0 || t.x >= state.grid.width || t.y >= state.grid.height) continue;
+                    const key = tileKey(t);
+                    if (!reach.has(key)) threat.add(key);
+                }
+            }
+        }
+        for (const key of threat) {
+            const [x, y] = key.split(",").map(Number);
+            g.rect(x * TILE + 1, y * TILE + 1, TILE - 2, TILE - 2).fill({ color: 0xff9a3a, alpha: 0.09 });
+        }
+        for (const node of reach.values()) {
+            if (sameTile(node.tile, enemy.pos)) continue;
+            g.rect(node.tile.x * TILE + 1, node.tile.y * TILE + 1, TILE - 2, TILE - 2).fill({ color: 0xff4a4a, alpha: 0.2 });
+        }
+    }
+
+    private hoveredCombatant(): Combatant | null {
+        if (!this.state || !this.hover) return null;
+        return Object.values(this.state.combatants).find((c) => c.alive && sameTile(c.pos, this.hover!)) ?? null;
+    }
+
+    /** Ficha del combatiente bajo el cursor, para el HUD. */
+    hoverInfo(): Combatant | null {
+        return this.hoveredCombatant();
     }
 
     /** Probabilidad de impacto para la habilidad elegida sobre la casilla bajo el cursor (la usa el HUD). */
@@ -767,6 +806,52 @@ export class BattleScene {
                     this.postFx.setMood([0.8, 0.8, 0.9], 0.3);
                     await this.banner(event.winner === "draw" ? "Empate" : "Derrota", 0xff8080, 1300);
                 }
+                return;
+            }
+            case "pushed": {
+                const view = this.views.get(event.targetId);
+                if (!view) return;
+                let from = { x: view.root.x / TILE, y: view.root.y / TILE };
+                for (const step of event.path) {
+                    const start = { ...from };
+                    const dx = step.x - start.x;
+                    const dy = step.y - start.y;
+                    const c = this.viewCenter(view);
+                    this.particles.burst(c.x, c.y + 12, { count: 6, color: 0xc8b48a, speed: [10, 40], life: [200, 420], scale: [0.04, 0.08] });
+                    await this.tween(95, (t) => this.placeUnit(view, { x: start.x + dx * ease.outCubic(t), y: start.y + dy * ease.outCubic(t) }));
+                    from = step;
+                }
+                if (event.collided) {
+                    const c = this.viewCenter(view);
+                    this.shake = Math.max(this.shake, 0.8);
+                    this.particles.burst(c.x, c.y, { count: 24, color: 0xe8d8b0, speed: [40, 120], life: [200, 500], scale: [0.05, 0.1] });
+                    this.floatText(c.x, c.y - 30, "¡Choque!", 0xffc46b, 10);
+                }
+                battleStore.pushLog(
+                    `${this.nameOf(event.targetId, after)} sale despedido${event.collided ? " y choca" : ""}.`,
+                    event.targetId === you ? "bad" : "info",
+                );
+                await this.wait(120);
+                return;
+            }
+            case "teleported": {
+                const view = this.views.get(event.actorId);
+                if (!view) return;
+                const a = center(event.from);
+                this.particles.burst(a.x, a.y - 6, { count: 30, color: 0xb98cff, speed: [20, 80], life: [300, 600], scale: [0.05, 0.11] });
+                this.lights?.add(a.x, a.y, 60, 0xb98cff, { alpha: 1, lifeMs: 400 });
+                await this.tween(160, (t) => {
+                    view.root.alpha = 1 - t;
+                });
+                this.placeUnit(view, event.to);
+                const b = center(event.to);
+                this.particles.burst(b.x, b.y - 6, { count: 30, color: 0xb98cff, speed: [20, 80], life: [300, 600], scale: [0.05, 0.11] });
+                this.lights?.add(b.x, b.y, 60, 0xb98cff, { alpha: 1, lifeMs: 400 });
+                this.postFx.aberration(0.6);
+                await this.tween(160, (t) => {
+                    view.root.alpha = t;
+                });
+                battleStore.pushLog(`${this.nameOf(event.actorId, after)} se desvanece y reaparece.`);
                 return;
             }
             case "placed":

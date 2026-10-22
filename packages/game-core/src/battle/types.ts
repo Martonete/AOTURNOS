@@ -23,7 +23,26 @@ export type StatusId =
     | "debilidad"
     | "invisible"
     | "provocado"
-    | "defendiendo";
+    | "defendiendo"
+    | "ralentizado"
+    | "caparazon";
+
+/** Cómo se mueve y elige posición la IA, al estilo de las familias de monstruos de Dofus. */
+export type Behavior =
+    /** Va de frente al más cercano. */
+    | "charger"
+    /** Rodea y busca la espalda; la manada se reparte alrededor del objetivo. */
+    | "flanker"
+    /** Pega y se aleja con los PM que le quedan. */
+    | "skirmisher"
+    /** Mantiene su distancia preferida y huye si lo encierran. */
+    | "kiter"
+    /** Lento y pesado: avanza sin importarle nada. */
+    | "brute"
+    /** Se queda cerca de sus aliados más débiles. */
+    | "guardian"
+    /** Escapa cuando está malherido. */
+    | "coward";
 
 export type AbilityId = string;
 
@@ -96,6 +115,12 @@ export type Combatant = {
     tags: Array<"undead" | "boss" | "zoneOfControl" | "staff" | "longShot">;
     immunities: StatusId[];
     controller: "player" | "ai";
+    /** Personalidad de movimiento de la IA; si falta se deduce del arquetipo. */
+    behavior?: Behavior;
+    /** Distancia a la que le gusta pelear (para kiter y skirmisher). */
+    preferredRange?: [number, number];
+    /** Familia de monstruo, para mostrarla en la ficha. */
+    family?: string;
     /** Arquetipo que guía a la IA. */
     archetype: "melee" | "ranged" | "caster" | "support";
     alive: boolean;
@@ -168,6 +193,9 @@ export type BattleEvent =
     | { t: "meditated"; actorId: string; manaGained: number }
     | { t: "defended"; actorId: string }
     | { t: "died"; targetId: string }
+    /** Desplazamiento forzado; `collided` si chocó contra algo y recibió daño. */
+    | { t: "pushed"; targetId: string; path: Tile[]; collided: boolean }
+    | { t: "teleported"; actorId: string; from: Tile; to: Tile }
     | { t: "revived"; targetId: string; hp: number }
     | { t: "turnEnded"; actorId: string }
     | { t: "battleEnded"; winner: Team | "draw" };

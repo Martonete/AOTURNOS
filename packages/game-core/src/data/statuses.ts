@@ -93,6 +93,15 @@ export const STATUSES: Record<StatusId, StatusDef> = {
         flags: ["hiddenAtRange"],
         breaksOnAttack: true,
     },
+    ralentizado: { id: "ralentizado", name: "Ralentizado", kind: "debuff", maxStacks: 2, dispellable: true, flat: { mp: -2 } },
+    caparazon: {
+        id: "caparazon",
+        name: "Caparazón",
+        kind: "buff",
+        maxStacks: 1,
+        dispellable: true,
+        flat: { damageTakenPct: -25 },
+    },
     provocado: { id: "provocado", name: "Provocado", kind: "debuff", maxStacks: 1, dispellable: true, flags: ["taunted"] },
     defendiendo: {
         id: "defendiendo",
