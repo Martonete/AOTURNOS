@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
     ABILITIES,
     abilityCosts,
@@ -81,7 +82,7 @@ function UnitInspector({ unit }: { unit: Combatant }) {
     const enemy = unit.team === "enemies";
     const behavior = behaviorOf(unit);
     return (
-        <div className={`${glass} pointer-events-none absolute left-3 top-20 w-72 p-3 text-xs`}>
+        <div className={`${glass} pointer-events-none max-h-full w-72 overflow-hidden p-3 text-xs`}>
             <div className="flex items-baseline justify-between">
                 <span className={`text-sm font-semibold ${enemy ? "text-rose-200" : "text-sky-200"}`}>{unit.name}</span>
                 <span className="text-[10px] uppercase tracking-wider text-white/50">{unit.family ?? `Nv ${unit.stats.level}`}</span>
@@ -169,6 +170,32 @@ function Countdown({ deadline }: { deadline: number }) {
     return <span className={`tabular-nums ${seconds <= 10 ? "text-rose-300" : "text-white/80"}`}>{seconds}s</span>;
 }
 
+/** Dónde montar la batalla: dentro del elemento en pantalla completa si lo hay, así se ve encima de todo. */
+function useFullscreenTarget(): { target: HTMLElement | null; fullscreen: boolean } {
+    const [target, setTarget] = useState<HTMLElement | null>(null);
+    const [fullscreen, setFullscreen] = useState(false);
+    useEffect(() => {
+        const update = () => {
+            const element = document.fullscreenElement;
+            setFullscreen(Boolean(element));
+            // Si toda la página está en pantalla completa, el body ya está dentro.
+            setTarget(element instanceof HTMLElement && element !== document.documentElement ? element : document.body);
+        };
+        update();
+        document.addEventListener("fullscreenchange", update);
+        return () => document.removeEventListener("fullscreenchange", update);
+    }, []);
+    return { target, fullscreen };
+}
+
+function toggleFullscreen(): void {
+    if (document.fullscreenElement) {
+        void document.exitFullscreen().catch(() => undefined);
+    } else {
+        void document.documentElement.requestFullscreen({ navigationUI: "hide" }).catch(() => undefined);
+    }
+}
+
 export function BattleOverlay() {
     const stage = useBattleStore((s) => s.stage);
     const state = useBattleStore((s) => s.state);
@@ -186,10 +213,12 @@ export function BattleOverlay() {
     const logRef = useRef<HTMLDivElement>(null);
     const [hitPreview, setHitPreview] = useState<{ name: string; chance: number } | null>(null);
     const [inspected, setInspected] = useState<Combatant | null>(null);
+    const [bottomHeight, setBottomHeight] = useState(0);
+    const { target: portalTarget, fullscreen } = useFullscreenTarget();
     const inBattle = stage !== "idle";
 
     useEffect(() => {
-        if (!inBattle || !hostRef.current) return;
+        if (!inBattle || !portalTarget || !hostRef.current) return;
         const scene = new BattleScene(hostRef.current);
         sceneRef.current = scene;
         scene.init().catch((error) => console.error("[battle] no se pudo iniciar la escena", error));
@@ -206,7 +235,22 @@ export function BattleOverlay() {
             scene.destroy();
             sceneRef.current = null;
         };
-    }, [inBattle]);
+        // Al entrar o salir de pantalla completa la escena se vuelve a montar en el nuevo contenedor.
+    }, [inBattle, portalTarget]);
+
+    // El tablero se centra en el espacio que dejan libre los paneles de arriba y de abajo.
+    const observerRef = useRef<ResizeObserver | null>(null);
+    const bottomRef = (panel: HTMLDivElement | null) => {
+        observerRef.current?.disconnect();
+        observerRef.current = null;
+        if (!panel) return;
+        observerRef.current = new ResizeObserver(() => setBottomHeight(panel.offsetHeight));
+        observerRef.current.observe(panel);
+    };
+
+    useEffect(() => {
+        sceneRef.current?.setInsets(72, bottomHeight > 0 ? bottomHeight + 24 : 24);
+    });
 
     useEffect(() => {
         if (stage !== "intro") return;
@@ -263,12 +307,15 @@ export function BattleOverlay() {
     });
 
     if (!inBattle) return <BattleLauncher />;
+    if (!portalTarget) return null;
 
     const order = state ? state.turnOrder.map((id) => state.combatants[id]).filter(Boolean) : [];
     const activeId = phase && "actorId" in phase ? phase.actorId : null;
 
-    return (
-        <div className="pointer-events-auto absolute inset-0 z-40 select-none overflow-hidden bg-black text-white">
+    const sideMaxHeight = `calc(100% - 5rem - ${bottomHeight + 24}px)`;
+
+    return createPortal(
+        <div className="pointer-events-auto fixed inset-0 z-[1000] select-none overflow-hidden bg-black text-white">
             <div ref={hostRef} className="absolute inset-0" />
 
             {/* Línea de iniciativa */}
@@ -306,8 +353,21 @@ export function BattleOverlay() {
                 )}
             </div>
 
+            <button
+                type="button"
+                onClick={toggleFullscreen}
+                title={fullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
+                className={`${glass} absolute right-3 top-3 px-3 py-2 text-xs text-white/80 hover:text-white`}
+            >
+                {fullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
+            </button>
+
             {/* Registro */}
-            <div ref={logRef} className={`${glass} absolute right-3 top-20 hidden max-h-[45%] w-64 overflow-y-auto p-2 text-xs md:block`}>
+            <div
+                ref={logRef}
+                style={{ maxHeight: sideMaxHeight }}
+                className={`${glass} absolute right-3 top-20 hidden w-64 overflow-y-auto p-2 text-xs md:block`}
+            >
                 {log.map((entry) => (
                     <div
                         key={entry.id}
@@ -326,7 +386,11 @@ export function BattleOverlay() {
                 ))}
             </div>
 
-            {inspected && stage === "active" && <UnitInspector unit={inspected} />}
+            {inspected && stage === "active" && (
+                <div className="pointer-events-none absolute left-3 top-20 flex" style={{ maxHeight: sideMaxHeight }}>
+                    <UnitInspector unit={inspected} />
+                </div>
+            )}
 
             {hitPreview && (
                 <div className={`${glass} absolute left-1/2 top-20 -translate-x-1/2 px-3 py-1 text-sm`}>
@@ -342,7 +406,7 @@ export function BattleOverlay() {
 
             {/* Ficha y acciones */}
             {me && stage !== "results" && (
-                <div className="absolute bottom-3 left-1/2 flex w-[min(960px,96%)] -translate-x-1/2 gap-3">
+                <div ref={bottomRef} className="absolute bottom-3 left-1/2 flex w-[min(1280px,96%)] -translate-x-1/2 gap-3">
                     <div className={`${glass} flex w-56 shrink-0 flex-col gap-1.5 p-3`}>
                         <div className="flex items-baseline justify-between">
                             <span className="font-semibold text-sky-100">{me.name}</span>
@@ -515,6 +579,7 @@ export function BattleOverlay() {
                     </div>
                 </div>
             )}
-        </div>
+        </div>,
+        portalTarget,
     );
 }

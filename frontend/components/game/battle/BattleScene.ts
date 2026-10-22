@@ -135,6 +135,8 @@ export class BattleScene {
     private playing = false;
     private unsubscribe: (() => void) | null = null;
     private resizeObserver: ResizeObserver | null = null;
+    /** Espacio ocupado por los paneles del HUD, para centrar el tablero en lo que queda libre. */
+    private insets = { top: 72, bottom: 150 };
 
     constructor(private readonly host: HTMLDivElement) {}
 
@@ -326,14 +328,19 @@ export class BattleScene {
         g.roundRect(x, y, Math.max(1, w * pct), 3, 1.5).fill(color);
     }
 
+    setInsets(top: number, bottom: number): void {
+        if (this.insets.top === top && this.insets.bottom === bottom) return;
+        this.insets = { top, bottom };
+        if (this.ready) this.layout();
+    }
+
     private layout(): void {
         if (!this.state) return;
         const { width, height } = this.state.grid;
         const sw = this.app.screen.width;
         const sh = this.app.screen.height;
         // Se deja lugar para la barra de acciones abajo y la línea de turnos arriba.
-        const top = 72;
-        const bottom = 150;
+        const { top, bottom } = this.insets;
         const usableH = Math.max(120, sh - top - bottom);
         const scale = Math.max(0.75, Math.min((sw - 40) / (width * TILE), usableH / (height * TILE)));
         this.world.scale.set(scale);
