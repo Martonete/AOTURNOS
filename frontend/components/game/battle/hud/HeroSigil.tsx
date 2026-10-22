@@ -59,7 +59,18 @@ function Ring({
 }
 
 /** Sello del héroe: vida, maná y energía como anillos; PA como gemas y PM como huellas. */
-export function HeroSigil({ unit, preview, myTurn }: { unit: Combatant; preview: SpendPreview | null; myTurn: boolean }) {
+export function HeroSigil({
+    unit,
+    preview,
+    myTurn,
+    guard = 0,
+}: {
+    unit: Combatant;
+    preview: SpendPreview | null;
+    myTurn: boolean;
+    /** Acorralado: parte del daño que te quitás de encima por estar rodeado. */
+    guard?: number;
+}) {
     const { res } = unit;
     const hpPct = res.hp / Math.max(1, res.maxHp);
     const apSpend = preview ? Math.min(res.ap, preview.ap) : 0;
@@ -167,6 +178,14 @@ export function HeroSigil({ unit, preview, myTurn }: { unit: Combatant; preview:
                         <Footprints key={i} size={14} className={i < res.mp ? "text-emerald-300" : "text-white/15"} />
                     ))}
                 </span>
+                {guard > 0 && (
+                    <span
+                        className="w-fit rounded-full border border-amber-300/50 bg-amber-500/15 px-1.5 py-px text-[10px] normal-case tracking-normal text-amber-100"
+                        title="Rodeado: cada rival pegado además del primero te quita 10 % del daño que recibís (hasta 30 %)."
+                    >
+                        Acorralado · −{Math.round(guard * 100)}% daño
+                    </span>
+                )}
                 {unit.statuses.length > 0 && (
                     <div className="mt-0.5 flex max-w-52 flex-wrap gap-1">
                         {unit.statuses.map((s) => {

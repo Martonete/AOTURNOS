@@ -192,6 +192,8 @@ export type BattleEvent =
     | { t: "statusExpired"; targetId: string; status: StatusId }
     | { t: "meditated"; actorId: string; manaGained: number }
     | { t: "defended"; actorId: string }
+    /** Quien defendía devuelve el golpe; le siguen "damaged" o "missed" sobre el atacante. */
+    | { t: "riposted"; actorId: string; targetId: string }
     | { t: "died"; targetId: string }
     /** Desplazamiento forzado; `collided` si chocó contra algo y recibió daño. */
     | { t: "pushed"; targetId: string; path: Tile[]; collided: boolean }

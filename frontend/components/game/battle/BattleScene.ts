@@ -12,12 +12,16 @@ import {
     ABILITIES,
     areaTiles,
     checkTarget,
+    crowdGuard,
+    dangerMap,
     forecastAbility,
     manhattan,
     pathTo,
     reachableTiles,
     sameTile,
     STATUSES,
+    threatAgainst,
+    threatZone,
     tileKey,
     type AbilityDef,
     type BattleEvent,
@@ -25,6 +29,8 @@ import {
     type Combatant,
     type DamageSchool,
     type Forecast,
+    type ThreatAgainst,
+    type ThreatZone,
     type Tile,
 } from "@aoturnos/game-core";
 import { BattleCharacterSprite, buildMapDiorama, createSpellFx, loadBattleDBs, type BattleDBs } from "./battleAssets";
@@ -130,6 +136,10 @@ export class BattleScene {
     private tweens = new Set<Tween>();
     private state: BattleState | null = null;
     private hover: Tile | null = null;
+    /** Mapa de peligro encendido (tecla Q): cuántos rivales llegan a cada casilla. */
+    private danger = false;
+    /** Zonas de amenaza calculadas para cada estado: el estado se reemplaza entero en cada evento. */
+    private threatCache = new WeakMap<BattleState, { zones: Map<string, ThreatZone>; danger?: Map<string, number> }>();
     private highlightClock = 0;
     private shake = 0;
     private playing = false;
@@ -505,11 +515,13 @@ export class BattleScene {
             }
         }
 
+        const me = this.myCombatant();
+        if (this.danger && !this.playing) this.drawDanger(g, state);
+
         // Como en Dofus: al pasar el mouse sobre un rival se ve hasta dónde camina y hasta dónde pega.
         const inspected = this.hoveredCombatant();
-        if (inspected && inspected.team === "enemies" && !this.playing) this.drawThreat(g, state, inspected);
+        if (inspected && inspected.team === "enemies" && !this.playing) this.drawThreat(g, state, inspected, pulse);
 
-        const me = this.myCombatant();
         if (!me || !me.alive || !this.isMyTurn()) {
             if (this.hover) g.rect(this.hover.x * TILE + 0.5, this.hover.y * TILE + 0.5, TILE - 1, TILE - 1).stroke({ color: 0xffffff, alpha: 0.25, width: 1 });
             return;
@@ -518,9 +530,13 @@ export class BattleScene {
         const mode = battleStore.get().mode;
         if (mode.kind === "move") {
             const reach = reachableTiles(state, me, me.res.mp);
+            const danger = this.dangerFor(state);
             for (const node of reach.values()) {
                 if (sameTile(node.tile, me.pos)) continue;
                 g.rect(node.tile.x * TILE + 1, node.tile.y * TILE + 1, TILE - 2, TILE - 2).fill({ color: 0x4fb2ff, alpha: 0.18 + pulse * 0.08 });
+                // Puntitos rojos: cuántos rivales te pueden pegar si terminás el turno en esa casilla.
+                const foes = Math.min(4, danger.get(tileKey(node.tile)) ?? 0);
+                for (let i = 0; i < foes; i++) g.circle(node.tile.x * TILE + 5 + i * 5, node.tile.y * TILE + 5, 1.8).fill({ color: 0xff4a4a, alpha: 0.95 });
             }
             if (this.hover && reach.has(tileKey(this.hover))) {
                 const path = pathTo(reach, this.hover) ?? [];
@@ -555,29 +571,78 @@ export class BattleScene {
         }
     }
 
-    private drawThreat(g: Graphics, state: BattleState, enemy: Combatant): void {
-        const reach = reachableTiles(state, enemy, enemy.res.maxMp);
-        const maxRange = Math.max(1, ...enemy.abilities.map((id) => ABILITIES[id]?.maxRange ?? 1));
-        const threat = new Set<string>();
-        for (const node of reach.values()) {
-            for (let dx = -maxRange; dx <= maxRange; dx++) {
-                const span = maxRange - Math.abs(dx);
-                for (let dy = -span; dy <= span; dy++) {
-                    const t = { x: node.tile.x + dx, y: node.tile.y + dy };
-                    if (t.x < 0 || t.y < 0 || t.x >= state.grid.width || t.y >= state.grid.height) continue;
-                    const key = tileKey(t);
-                    if (!reach.has(key)) threat.add(key);
-                }
-            }
+    private zoneFor(state: BattleState, unit: Combatant): ThreatZone {
+        let entry = this.threatCache.get(state);
+        if (!entry) {
+            entry = { zones: new Map() };
+            this.threatCache.set(state, entry);
         }
-        for (const key of threat) {
+        let zone = entry.zones.get(unit.id);
+        if (!zone) {
+            zone = threatZone(state, unit);
+            entry.zones.set(unit.id, zone);
+        }
+        return zone;
+    }
+
+    private dangerFor(state: BattleState): Map<string, number> {
+        let entry = this.threatCache.get(state);
+        if (!entry) {
+            entry = { zones: new Map() };
+            this.threatCache.set(state, entry);
+        }
+        entry.danger ??= dangerMap(state, "enemies");
+        return entry.danger;
+    }
+
+    /** Mapa de peligro: más rojo cuantos más rivales pueden atacar la casilla en su próximo turno. */
+    private drawDanger(g: Graphics, state: BattleState): void {
+        const tones = [0, 0xffc04a, 0xff8a3a, 0xff4a3a, 0xd01a4a];
+        for (const [key, count] of this.dangerFor(state)) {
             const [x, y] = key.split(",").map(Number);
-            g.rect(x * TILE + 1, y * TILE + 1, TILE - 2, TILE - 2).fill({ color: 0xff9a3a, alpha: 0.09 });
+            const level = Math.min(4, count);
+            g.rect(x * TILE + 1, y * TILE + 1, TILE - 2, TILE - 2).fill({ color: tones[level], alpha: 0.1 + level * 0.07 });
         }
-        for (const node of reach.values()) {
-            if (sameTile(node.tile, enemy.pos)) continue;
-            g.rect(node.tile.x * TILE + 1, node.tile.y * TILE + 1, TILE - 2, TILE - 2).fill({ color: 0xff4a4a, alpha: 0.2 });
+    }
+
+    private drawThreat(g: Graphics, state: BattleState, enemy: Combatant, pulse: number): void {
+        const zone = this.zoneFor(state, enemy);
+        const moves = new Set(zone.move.map(tileKey));
+        for (const t of zone.attack) {
+            if (moves.has(tileKey(t))) continue;
+            g.rect(t.x * TILE + 1, t.y * TILE + 1, TILE - 2, TILE - 2).fill({ color: 0xff9a3a, alpha: 0.24 });
         }
+        for (const t of zone.move) {
+            g.rect(t.x * TILE + 1, t.y * TILE + 1, TILE - 2, TILE - 2).fill({ color: 0xff4a4a, alpha: 0.32 });
+        }
+        // Los héroes que quedan al alcance se marcan con un anillo rojo que late.
+        const reachable = new Set(zone.attack.map(tileKey));
+        for (const c of Object.values(state.combatants)) {
+            if (!c.alive || c.team === enemy.team || !reachable.has(tileKey(c.pos))) continue;
+            const p = { x: c.pos.x * TILE + TILE / 2, y: c.pos.y * TILE + TILE - 3 };
+            g.ellipse(p.x, p.y, 15 + pulse * 2, 7 + pulse).stroke({ color: 0xff3a3a, width: 2, alpha: 0.95 });
+        }
+    }
+
+    /** Enciende o apaga el mapa de peligro. */
+    setDanger(on: boolean): void {
+        this.danger = on;
+    }
+
+    /** Ficha de amenaza del rival bajo el cursor: hasta dónde llega y cuánto te pega el próximo turno. */
+    hoverThreat(): { unitId: string; zone: ThreatZone; against: ThreatAgainst | null } | null {
+        const state = this.state;
+        const unit = this.hoveredCombatant();
+        if (!state || !unit || unit.team !== "enemies") return null;
+        const me = this.myCombatant();
+        const zone = this.zoneFor(state, unit);
+        return { unitId: unit.id, zone, against: me && me.alive ? threatAgainst(state, unit, me) : null };
+    }
+
+    /** Cuánto daño te quita Acorralado ahora mismo (0 a 0.3). */
+    myGuard(): number {
+        const me = this.myCombatant();
+        return this.state && me && me.alive ? crowdGuard(this.state, me) : 0;
     }
 
     private hoveredCombatant(): Combatant | null {
@@ -600,7 +665,7 @@ export class BattleScene {
         if (!ability) return null;
         const target = Object.values(state.combatants).find((c) => c.alive && sameTile(c.pos, this.hover!));
         if (!target || checkTarget(state, me, ability, target.pos)) return null;
-        const forecast = forecastAbility(me, target, ability);
+        const forecast = forecastAbility(me, target, ability, state);
         return forecast ? { target, forecast, abilityName: ability.name } : null;
     }
 
@@ -778,6 +843,16 @@ export class BattleScene {
                 this.floatText(c.x, c.y - 28, "En guardia", 0xc8d8ff, 10);
                 battleStore.pushLog(`${this.nameOf(event.actorId, after)} se pone en guardia.`);
                 await this.wait(300);
+                return;
+            }
+            case "riposted": {
+                const view = this.views.get(event.actorId);
+                if (!view) return;
+                const c = this.viewCenter(view);
+                this.lights?.add(c.x, c.y, 55, 0xffd36b, { alpha: 1, lifeMs: 500 });
+                this.floatText(c.x, c.y - 28, "¡Represalia!", 0xffd36b, 11);
+                battleStore.pushLog(`${this.nameOf(event.actorId, after)} devuelve el golpe a ${this.nameOf(event.targetId, after)}.`, "warn");
+                await this.wait(250);
                 return;
             }
             case "died": {

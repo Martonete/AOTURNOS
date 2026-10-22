@@ -58,10 +58,11 @@ export function affectedCombatants(state: BattleState, caster: Combatant, abilit
         const c = combatantAt(state, tile);
         if (!c) continue;
         const isAlly = c.team === caster.team;
-        if (ability.target === "ally" || ability.target === "self") {
-            if (isAlly) result.push(c);
-        } else if (ability.hostile) {
+        // Lo hostil va primero: Barrido y Pisotón se apuntan a uno mismo pero pegan a los rivales de alrededor.
+        if (ability.hostile) {
             if (!isAlly || ability.friendlyFire) result.push(c);
+        } else if (ability.target === "ally" || ability.target === "self") {
+            if (isAlly) result.push(c);
         } else {
             result.push(c);
         }

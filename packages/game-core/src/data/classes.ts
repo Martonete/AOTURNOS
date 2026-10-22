@@ -114,6 +114,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
             { id: "golpe", level: 1 },
             { id: "embestida", level: 1 },
             { id: "curar_leves", level: 1 },
+            { id: "barrido", level: 1 },
             { id: "provocar", level: 5 },
             { id: "remover_paralisis", level: 8 },
             { id: "golpe_brutal", level: 10 },
@@ -141,6 +142,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
         abilities: [
             { id: "golpe", level: 1 },
             { id: "disparo", level: 1 },
+            { id: "tiro_rapido", level: 1 },
             { id: "flecha_elfica", level: 1 },
             { id: "disparo_inmovilizante", level: 1 },
             { id: "flecha_electrica", level: 10 },

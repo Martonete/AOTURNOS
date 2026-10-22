@@ -1,6 +1,6 @@
-import { headingBetween } from "./grid";
+import { combatantAt, DIRECTIONS, headingBetween } from "./grid";
 import { effectiveAttr, flatModifier } from "./statuses";
-import type { Combatant, Flank } from "./types";
+import type { BattleState, Combatant, Flank } from "./types";
 
 /**
  * Fórmulas de combate. Conservan la forma de las de server/src/game.ts
@@ -40,6 +40,32 @@ export function critChance(attacker: Combatant): number {
 export function damageTakenMultiplier(target: Combatant): number {
     return Math.max(0, 1 + flatModifier(target, "damageTakenPct") / 100);
 }
+
+/** Acorralado: cada rival pegado además del primero quita 10 % del daño recibido, hasta 30 %. */
+export const CROWD_GUARD_STEP = 0.1;
+export const CROWD_GUARD_MAX = 0.3;
+
+/** Rivales vivos en las cuatro casillas pegadas a `c`. */
+export function adjacentFoes(state: BattleState, c: Combatant): number {
+    let count = 0;
+    for (const { dx, dy } of DIRECTIONS) {
+        const other = combatantAt(state, { x: c.pos.x + dx, y: c.pos.y + dy });
+        if (other && other.alive && other.team !== c.team) count++;
+    }
+    return count;
+}
+
+/**
+ * Contra la superioridad numérica: un héroe rodeado se cubre mejor. Solo protege a los héroes,
+ * así una party que rodea a un jefe no le regala la defensa.
+ */
+export function crowdGuard(state: BattleState, target: Combatant): number {
+    if (target.team !== "heroes") return 0;
+    return Math.min(CROWD_GUARD_MAX, Math.max(0, adjacentFoes(state, target) - 1) * CROWD_GUARD_STEP);
+}
+
+/** Represalia: quien defiende devuelve medio golpe a cada ataque cuerpo a cuerpo que recibe. */
+export const RIPOSTE_MULT = 0.5;
 
 /** Cazador: +10 % por casilla por encima de 3, hasta +30 %. */
 export function longShotBonus(attacker: Combatant, distance: number): number {

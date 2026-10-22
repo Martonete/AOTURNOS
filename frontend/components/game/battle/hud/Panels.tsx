@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ABILITIES, STATUSES, behaviorOf, type Behavior, type Combatant, type Forecast } from "@aoturnos/game-core";
-import { Brain, Crown, FlaskConical, ScrollText, Shield, Skull } from "lucide-react";
+import { ABILITIES, STATUSES, behaviorOf, usesPerTurn, type Behavior, type Combatant, type Forecast, type ThreatAgainst, type ThreatZone } from "@aoturnos/game-core";
+import { Brain, Crosshair, Crown, FlaskConical, Footprints, ScrollText, Shield, ShieldCheck, Skull, Swords } from "lucide-react";
 import type { BattleStoreState } from "../battleStore";
 import { UnitEmblem } from "./Emblem";
 
@@ -54,10 +54,18 @@ const BEHAVIOR_LABEL: Record<Behavior, string> = {
 };
 
 /** Ficha del rival (o aliado) bajo el cursor, como una página de bestiario. */
-export function Bestiary({ unit, me }: { unit: Combatant; me: Combatant | undefined }) {
+export function Bestiary({
+    unit,
+    me,
+    threat,
+}: {
+    unit: Combatant;
+    me: Combatant | undefined;
+    threat: { zone: ThreatZone; against: ThreatAgainst | null } | null;
+}) {
     const enemy = unit.team === "enemies";
     const diff = me ? unit.stats.level - me.stats.level : 0;
-    const threat = unit.tags.includes("boss") ? 4 : diff >= 3 ? 3 : diff <= -3 ? 1 : 2;
+    const menace = unit.tags.includes("boss") ? 4 : diff >= 3 ? 3 : diff <= -3 ? 1 : 2;
     const hp = unit.res.hp / Math.max(1, unit.res.maxHp);
     return (
         <div className="grim-parchment grim-rise pointer-events-none w-72 rounded-xl p-3 text-xs">
@@ -80,11 +88,11 @@ export function Bestiary({ unit, me }: { unit: Combatant; me: Combatant | undefi
                 {enemy && (
                     <div className="flex flex-col items-end gap-0.5" title="Amenaza según tu nivel">
                         <div className="flex">
-                            {threat === 4 ? (
+                            {menace === 4 ? (
                                 <Crown size={16} className="text-amber-300" />
                             ) : (
                                 Array.from({ length: 3 }, (_, i) => (
-                                    <Skull key={i} size={13} className={i < threat ? "text-rose-400" : "text-white/15"} />
+                                    <Skull key={i} size={13} className={i < menace ? "text-rose-400" : "text-white/15"} />
                                 ))
                             )}
                         </div>
@@ -104,6 +112,7 @@ export function Bestiary({ unit, me }: { unit: Combatant; me: Combatant | undefi
                     {unit.res.maxAp} PA · {unit.res.maxMp} PM
                 </span>
             </div>
+            {enemy && threat && <Omen unit={unit} zone={threat.zone} against={threat.against} me={me} />}
             <div className="mt-1.5 flex flex-wrap gap-1">
                 {unit.tags.includes("zoneOfControl") && (
                     <span className="flex items-center gap-1 rounded-full bg-white/5 px-1.5 py-px text-[10px] text-amber-100/80">
@@ -124,9 +133,13 @@ export function Bestiary({ unit, me }: { unit: Combatant; me: Combatant | undefi
                     const a = ABILITIES[id];
                     if (!a) return null;
                     const range = a.target === "self" ? "propio" : a.minRange === a.maxRange ? `${a.maxRange}` : `${a.minRange}–${a.maxRange}`;
+                    const uses = a.hostile ? usesPerTurn(unit, a, unit.res.maxAp) : 0;
                     return (
                         <div key={id} className="flex justify-between gap-2 border-t border-amber-500/10 pt-1">
-                            <span className="font-semibold text-amber-50/90">{a.name}</span>
+                            <span className="font-semibold text-amber-50/90">
+                                {a.name}
+                                {uses > 1 && <span className="ml-1 text-rose-300/80">×{uses}</span>}
+                            </span>
                             <span className="shrink-0 text-amber-100/45">
                                 {a.apCost} PA · {range}
                                 {a.cooldown ? ` · ${a.cooldown}t` : ""}
@@ -135,7 +148,59 @@ export function Bestiary({ unit, me }: { unit: Combatant; me: Combatant | undefi
                     );
                 })}
             </div>
-            {enemy && <div className="mt-2 text-[10px] text-amber-100/40">Rojo: hasta dónde camina. Naranja: hasta dónde llega a pegar.</div>}
+            {enemy && (
+                <div className="mt-2 text-[10px] leading-snug text-amber-100/40">
+                    Rojo: hasta dónde camina. Naranja: hasta dónde llega a pegar. ×N: cuántas veces le entra en un turno. Q: mapa de peligro.
+                </div>
+            )}
+        </div>
+    );
+}
+
+/** Presagio: lo que este rival puede hacer en su próximo turno, y contra vos en particular. */
+function Omen({ unit, zone, against, me }: { unit: Combatant; zone: ThreatZone; against: ThreatAgainst | null; me: Combatant | undefined }) {
+    const reach = zone.abilities.length > 0 ? Math.max(...zone.abilities.map((a) => (a.target === "self" ? 1 : a.maxRange))) : 0;
+    const hpAfter = me ? Math.max(0, me.res.hp - (against?.expected ?? 0)) : 0;
+    const deadly = Boolean(me && against && against.worst >= me.res.hp);
+    return (
+        <div className="mt-2 rounded-lg border border-rose-500/25 bg-black/35 p-2">
+            <div className="font-rune text-[10px] font-bold uppercase tracking-[0.2em] text-rose-200/80">Su próximo turno</div>
+            <div className="mt-1 grid grid-cols-3 gap-1 text-center text-[10px] text-amber-100/70">
+                <span className="flex flex-col items-center gap-0.5" title="Casillas que puede caminar">
+                    <Footprints size={13} className="text-rose-300" />
+                    {zone.mp} PM
+                </span>
+                <span className="flex flex-col items-center gap-0.5" title="Distancia máxima de ataque después de moverse">
+                    <Crosshair size={13} className="text-orange-300" />
+                    {zone.mp + reach} casillas
+                </span>
+                <span className="flex flex-col items-center gap-0.5" title="PA con los que arranca su turno">
+                    <Swords size={13} className="text-amber-300" />
+                    {zone.ap} PA
+                </span>
+            </div>
+            {me && unit.alive && (
+                <div className="mt-1.5 border-t border-amber-500/10 pt-1.5 text-[11px] leading-snug">
+                    {against ? (
+                        <>
+                            <div className={deadly ? "text-rose-300" : "text-amber-50/85"}>
+                                {deadly ? <Skull size={11} className="mr-1 inline grim-doom" /> : null}
+                                Te alcanza con <b>{against.ability.name}</b>
+                                {against.uses > 1 ? ` ×${against.uses}` : ""}: ~{against.expected} de daño
+                                <span className="text-amber-100/45"> (peor caso {against.worst})</span>
+                            </div>
+                            <div className="text-amber-100/50">
+                                {against.forecast.hitChance}% de acierto · te quedarías en ~{hpAfter}/{me.res.maxHp}
+                                {against.forecast.guard > 0 ? ` · Acorralado −${Math.round(against.forecast.guard * 100)}%` : ""}
+                            </div>
+                        </>
+                    ) : (
+                        <div className="flex items-center gap-1 text-emerald-200/90">
+                            <ShieldCheck size={12} /> No te alcanza en su próximo turno.
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
@@ -271,7 +336,7 @@ export function Talismans({
             )}
             <Talisman
                 label="Defensa"
-                hint="Defender: recibís menos daño hasta tu próximo turno y lo terminás"
+                hint="Defender: −30 % de daño, +20 de evasión y devolvés medio golpe a cada ataque cuerpo a cuerpo hasta tu próximo turno. Termina el turno."
                 tone="#8a8a8a"
                 disabled={!myTurn}
                 onClick={() => onAct("defend")}

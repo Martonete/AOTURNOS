@@ -9,7 +9,10 @@ import {
     MEDITATE_AP,
     type Combatant,
     type Forecast,
+    type ThreatAgainst,
+    type ThreatZone,
 } from "@aoturnos/game-core";
+import { Flame } from "lucide-react";
 import { BattleScene } from "./BattleScene";
 import { battleStore, useBattleStore } from "./battleStore";
 import { FateThread, SealTurn, TurnHerald } from "./hud/Fate";
@@ -97,6 +100,9 @@ export function BattleOverlay() {
     const sceneRef = useRef<BattleScene | null>(null);
     const [augury, setAugury] = useState<{ target: Combatant; forecast: Forecast; abilityName: string } | null>(null);
     const [inspected, setInspected] = useState<Combatant | null>(null);
+    const [threat, setThreat] = useState<{ unitId: string; zone: ThreatZone; against: ThreatAgainst | null } | null>(null);
+    const [guard, setGuard] = useState(0);
+    const [danger, setDanger] = useState(false);
     const [hoverAbility, setHoverAbility] = useState<string | null>(null);
     const [herald, setHerald] = useState<{ text: string; mine: boolean; nonce: number } | null>(null);
     const [bottomHeight, setBottomHeight] = useState(0);
@@ -120,6 +126,11 @@ export function BattleOverlay() {
                 // Mantiene la misma referencia mientras no cambie, para no re-renderizar de más.
                 return prev && next && prev.id === next.id && prev.res.hp === next.res.hp && prev.statuses.length === next.statuses.length ? prev : next;
             });
+            setThreat((prev) => {
+                const next = scene.hoverThreat();
+                return prev && next && prev.zone === next.zone && prev.against?.expected === next.against?.expected ? prev : next;
+            });
+            setGuard(scene.myGuard());
         }, 120);
         return () => {
             clearInterval(id);
@@ -138,6 +149,10 @@ export function BattleOverlay() {
         observerRef.current = new ResizeObserver(() => setBottomHeight(panel.offsetHeight));
         observerRef.current.observe(panel);
     };
+
+    useEffect(() => {
+        sceneRef.current?.setDanger(danger);
+    });
 
     useEffect(() => {
         sceneRef.current?.setInsets(120, bottomHeight > 0 ? bottomHeight + 12 : 24);
@@ -205,6 +220,7 @@ export function BattleOverlay() {
         const onKey = (e: KeyboardEvent) => {
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
             if (e.key === "Escape") battleStore.setMode({ kind: "move" });
+            if (e.key === "q" || e.key === "Q") setDanger((v) => !v);
             if (!myTurn || !me) return;
             if (e.key === "e" || e.key === "E" || e.key === " ") {
                 e.preventDefault();
@@ -232,7 +248,7 @@ export function BattleOverlay() {
         ? ""
         : myTurn
           ? mode.kind === "move"
-              ? "Caminá por las casillas azules o jugá una carta del grimorio."
+              ? "Caminá por las casillas azules (los puntos rojos son cuántos rivales te llegan ahí) o jugá una carta."
               : `Elegí el objetivo de ${ABILITIES[mode.abilityId]?.name}. Esc o clic derecho para cancelar.`
           : !me.alive
             ? "Caíste. Un clérigo todavía puede alzarte."
@@ -268,6 +284,16 @@ export function BattleOverlay() {
                 >
                     {fullscreen ? "Ventana" : "Pantalla completa"}
                 </button>
+                <button
+                    type="button"
+                    onClick={() => setDanger((v) => !v)}
+                    title="Mapa de peligro (Q): cuántos rivales pueden atacar cada casilla en su próximo turno"
+                    className={`grim-parchment flex items-center gap-1.5 rounded-full px-3 py-1 font-rune text-[10px] font-bold uppercase tracking-[0.2em] ${
+                        danger ? "bg-rose-950/80 text-rose-200 shadow-[0_0_14px_rgba(255,74,58,0.55)]" : "text-amber-100/70 hover:text-amber-50"
+                    }`}
+                >
+                    <Flame size={13} /> Peligro · Q
+                </button>
                 <div className="hidden md:block">
                     <Chronicle log={log} />
                 </div>
@@ -275,7 +301,7 @@ export function BattleOverlay() {
 
             {inspected && stage === "active" && (
                 <div className="pointer-events-none absolute left-3 top-24">
-                    <Bestiary unit={inspected} me={me} />
+                    <Bestiary unit={inspected} me={me} threat={threat && threat.unitId === inspected.id ? threat : null} />
                 </div>
             )}
 
@@ -290,7 +316,7 @@ export function BattleOverlay() {
             {/* Sello del héroe, grimorio y talismanes */}
             {me && stage !== "results" && (
                 <div ref={bottomRef} className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 px-4 pb-3">
-                    <HeroSigil unit={me} preview={spend} myTurn={myTurn} />
+                    <HeroSigil unit={me} preview={spend} myTurn={myTurn} guard={guard} />
 
                     <div className="flex min-w-0 flex-1 flex-col items-center">
                         <div className="mb-1 rounded-full bg-black/55 px-3 py-0.5 font-chronicle text-sm italic text-amber-100/85">{hint}</div>

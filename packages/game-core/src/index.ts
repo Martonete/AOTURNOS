@@ -10,6 +10,7 @@ export * from "./battle/engine";
 export * from "./battle/ai";
 export * from "./battle/setup";
 export * from "./battle/forecast";
+export * from "./battle/threat";
 export * from "./data/abilities";
 export * from "./data/classes";
 export * from "./data/enemies";
