@@ -72,6 +72,30 @@ function abilityColor(ability: AbilityDef | undefined): number {
     return ability.hostile ? 0xd28cff : 0x9de6ff;
 }
 
+/**
+ * Una sola Application de Pixi para todas las batallas. Destruir una segunda Application
+ * rompe el renderer del mapa (Pixi comparte pools globales de batchers y geometrías), así
+ * que al terminar un combate se vacía y se desmonta, pero no se destruye.
+ */
+let sharedApp: Promise<Application> | null = null;
+
+function getBattleApp(): Promise<Application> {
+    sharedApp ??= (async () => {
+        const app = new Application();
+        await app.init({
+            background: 0x05060a,
+            antialias: false,
+            autoDensity: true,
+            resolution: Math.min(2, window.devicePixelRatio || 1),
+            autoStart: false,
+        });
+        app.canvas.style.imageRendering = "pixelated";
+        app.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+        return app;
+    })();
+    return sharedApp;
+}
+
 const center = (t: Tile) => ({ x: t.x * TILE + TILE / 2, y: t.y * TILE + TILE / 2 });
 
 /**
@@ -80,7 +104,8 @@ const center = (t: Tile) => ({ x: t.x * TILE + TILE / 2, y: t.y * TILE + TILE / 
  * eventos del store y manda las acciones del jugador.
  */
 export class BattleScene {
-    private app = new Application();
+    private app!: Application;
+    private readonly tick = (ticker: { deltaMS: number }) => this.update(ticker.deltaMS);
     private dbs: BattleDBs | null = null;
     private destroyed = false;
     private ready = false;
@@ -114,19 +139,10 @@ export class BattleScene {
     constructor(private readonly host: HTMLDivElement) {}
 
     async init(): Promise<void> {
-        await this.app.init({
-            background: 0x05060a,
-            antialias: false,
-            resizeTo: this.host,
-            autoDensity: true,
-            resolution: Math.min(2, window.devicePixelRatio || 1),
-        });
-        if (this.destroyed) {
-            this.app.destroy(true);
-            return;
-        }
+        this.app = await getBattleApp();
+        if (this.destroyed) return;
         this.host.appendChild(this.app.canvas);
-        this.app.canvas.style.imageRendering = "pixelated";
+        this.app.resizeTo = this.host;
 
         this.dbs = await loadBattleDBs();
         if (this.destroyed) return;
@@ -141,9 +157,9 @@ export class BattleScene {
         this.world.on("pointermove", (e) => this.onPointerMove(e));
         this.world.on("pointertap", (e) => this.onPointerTap(e));
         this.world.on("rightclick", () => battleStore.setMode({ kind: "move" }));
-        this.app.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
-        this.app.ticker.add((ticker) => this.update(ticker.deltaMS));
+        this.app.ticker.add(this.tick);
+        this.app.start();
         this.resizeObserver = new ResizeObserver(() => this.layout());
         this.resizeObserver.observe(this.host);
 
@@ -161,7 +177,15 @@ export class BattleScene {
         for (const view of this.views.values()) view.body.destroy();
         this.views.clear();
         this.tweens.clear();
-        if (this.app.renderer) this.app.destroy(true, { children: true });
+        const app = this.app;
+        if (!app) return;
+        app.ticker.remove(this.tick);
+        app.stop();
+        for (const child of app.stage.removeChildren()) child.destroy({ children: true });
+        this.lights?.scene.destroy({ children: true });
+        this.lightTexture?.destroy(true);
+        app.resizeTo = undefined as unknown as HTMLElement;
+        app.canvas.remove();
     }
 
     /* ---------------------------- montaje ---------------------------- */
@@ -323,12 +347,18 @@ export class BattleScene {
     /* ---------------------------- bucle ---------------------------- */
 
     private update(deltaMs: number): void {
-        if (!this.state) return;
+        if (!this.state || this.destroyed) return;
         for (const tween of [...this.tweens]) {
             tween.elapsed += deltaMs;
             const t = Math.min(1, tween.elapsed / tween.duration);
-            tween.step(t);
-            if (t >= 1) {
+            try {
+                tween.step(t);
+            } catch (error) {
+                // Un paso roto no puede trabar la cola de animación: se da por terminado.
+                console.error("[battle] error en animación", error);
+                tween.elapsed = tween.duration;
+            }
+            if (t >= 1 || tween.elapsed >= tween.duration) {
                 this.tweens.delete(tween);
                 tween.done();
             }

@@ -150,6 +150,13 @@ export function BattleOverlay() {
         if (result && !busy && stage === "active") battleStore.setStage("results");
     }, [result, busy, stage]);
 
+    // Red de seguridad: si alguna animación se traba, la pantalla de resultados aparece igual.
+    useEffect(() => {
+        if (!result || stage !== "active") return;
+        const id = setTimeout(() => battleStore.setStage("results"), 8000);
+        return () => clearTimeout(id);
+    }, [result, stage]);
+
     useEffect(() => {
         if (!notice) return;
         const id = setTimeout(() => battleStore.clearNotice(), 2600);
