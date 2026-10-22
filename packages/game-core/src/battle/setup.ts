@@ -43,7 +43,10 @@ export function createHero(input: HeroInput, team: Team = "heroes"): Combatant {
         team,
         source: { kind: "character", characterId: input.characterId },
         classId: cls.id,
-        appearance: { ...cls.appearance, ...input.appearance },
+        appearance: {
+            ...cls.appearance,
+            ...Object.fromEntries(Object.entries(input.appearance ?? {}).filter(([, v]) => typeof v === "number" && v > 0)),
+        },
         pos: { x: 0, y: 0 },
         heading: team === "heroes" ? 1 : 2,
         res: {

@@ -14,3 +14,4 @@ export * from "./data/classes";
 export * from "./data/enemies";
 export * from "./data/statuses";
 export * from "./data/encounters";
+export * from "./protocol";

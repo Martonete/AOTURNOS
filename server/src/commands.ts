@@ -2118,6 +2118,13 @@ const command: CommandApi = {
             const userInSafeZone = isInSafeZone(user);
 
             switch (commandText) {
+                case "/batalla":
+                case "/combate": {
+                    const encounterId = nextText.trim().toLowerCase() || "lobos";
+                    require("./battle/battleManager").startBattle(clientId, encounterId);
+                    break;
+                }
+
                 case "/online":
                     handleProtocol.console(
                         `Usuarios online en PvE: ${vars.usuariosOnline}`,

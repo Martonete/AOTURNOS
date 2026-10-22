@@ -9,6 +9,7 @@ import {
 import { setTextIfChanged } from "../rendering/textStyles";
 import { getSmoothedPingDisplay } from "../network/ping";
 import { parseQueuedSocketMessage } from "../network/packetQueue";
+import { battleStore } from "../battle/battleStore";
 
 type ManualConnectionConfig = {
     wsUrl: string;
@@ -307,6 +308,7 @@ export function useGameSession({
         const socket = new WebSocket(connection.wsUrl);
         socket.binaryType = "arraybuffer";
         websocketRef.current = socket;
+        battleStore.attachSocket(socket);
 
         emitStatusRef.current({ connected: false, connecting: true });
 

@@ -7,7 +7,10 @@
         "build": "next build",
         "start": "next start",
         "lint": "eslint",
-        "generate:headswithfile": "node ./scripts/generate-headswithfile.mjs"
+        "generate:headswithfile": "node ./scripts/generate-headswithfile.mjs",
+        "build:core": "pnpm --dir ../packages/game-core install && pnpm --dir ../packages/game-core build",
+        "predev": "pnpm run build:core",
+        "prebuild": "pnpm run build:core"
     },
     "dependencies": {
         "dotenv": "^17.4.2",
@@ -16,7 +19,8 @@
         "next": "^16.2.4",
         "pixi.js": "^8.17.1",
         "react": "^19.2.5",
-        "react-dom": "^19.2.5"
+        "react-dom": "^19.2.5",
+        "@aoturnos/game-core": "link:../packages/game-core"
     },
     "devDependencies": {
         "@tailwindcss/postcss": "^4.2.4",

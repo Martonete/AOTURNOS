@@ -33,6 +33,7 @@ const harvesting = require("./harvesting");
 const crafting = require("./crafting");
 const smelting = require("./smelting");
 const challengeManager = require("./challengeManager");
+const battleManager = require("./battle/battleManager") as typeof import("./battle/battleManager");
 const LOGOUT_CANCELLED_MESSAGE = "[Servidor] La salida se canceló porque te moviste.";
 const MAX_PENDING_MOVE_QUEUE_LENGTH = 8;
 const REVIVE_CAST_MS = 10000;
@@ -1035,6 +1036,27 @@ dictionaryServer[pkg.serverPacketID.retosAction] = retosAction;
 dictionaryServer[pkg.serverPacketID.toggleHiddenSkill] = toggleHiddenSkill;
 dictionaryServer[pkg.serverPacketID.useItemU] = useItemU;
 dictionaryServer[pkg.serverPacketID.craftItem] = craftItem;
+dictionaryServer[pkg.serverPacketID.battleAction] = battleAction;
+
+/** Paquetes de exploración que se ignoran mientras el personaje está en una batalla por turnos. */
+const BLOCKED_DURING_BATTLE = new Set<number>([
+    pkg.serverPacketID.position,
+    pkg.serverPacketID.changeHeading,
+    pkg.serverPacketID.click,
+    pkg.serverPacketID.attackMele,
+    pkg.serverPacketID.attackRange,
+    pkg.serverPacketID.attackSpell,
+    pkg.serverPacketID.useItemClick,
+    pkg.serverPacketID.useItemU,
+    pkg.serverPacketID.equiparItem,
+    pkg.serverPacketID.tirarItem,
+    pkg.serverPacketID.agarrarItem,
+    pkg.serverPacketID.buyItem,
+    pkg.serverPacketID.sellItem,
+    pkg.serverPacketID.toggleHiddenSkill,
+    pkg.serverPacketID.craftItem,
+    pkg.serverPacketID.retosAction,
+]);
 
 function Protocol(this: ProtocolApi) {
     try {
@@ -1042,6 +1064,10 @@ function Protocol(this: ProtocolApi) {
             const handler = dictionaryServer[packageID];
 
             if (!handler) {
+                return;
+            }
+
+            if (BLOCKED_DURING_BATTLE.has(packageID) && battleManager.isInBattle(ws.id)) {
                 return;
             }
 
@@ -4353,6 +4379,25 @@ async function marketAction(ws: RuntimeClient) {
         funct.dumpError(err);
     } finally {
         ws.marketActionInFlight = false;
+    }
+}
+
+function battleAction(ws: RuntimeClient) {
+    try {
+        if (!game.existPjOrClose(ws) || !pkg.canReadBytes(2)) {
+            return;
+        }
+
+        const rawPayload = pkg.getString();
+        const payload = rawPayload ? JSON.parse(rawPayload) : null;
+
+        if (!payload || typeof payload.kind !== "string") {
+            return;
+        }
+
+        battleManager.handleClientMessage(ws.id!, payload);
+    } catch (err) {
+        funct.dumpError(err);
     }
 }
 

@@ -87,6 +87,7 @@ import {
     type InspectableNpc,
     type RevivableCharacter,
 } from "../admin/npcInspector";
+import { BattleOverlay } from "../battle/BattleOverlay";
 
 type ResourceKind = "hp" | "mana";
 
@@ -2010,6 +2011,7 @@ export default function MapRenderer({
                         stage={loadingState.stage}
                     />
                 )}
+                <BattleOverlay />
                 <DebugCombatOverlay
                     enabled={isDebugMode}
                     text={debugCombatOverlayText}

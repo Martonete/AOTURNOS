@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import path from "node:path";
 import type { NextConfig } from "next";
 
 function resolveBuildId(): string {
@@ -23,6 +24,12 @@ const nextConfig: NextConfig = {
         NEXT_PUBLIC_NEXT_BUILD_ID: buildId,
     },
     generateBuildId: async () => buildId,
+    // game-core vive en ../packages y se enlaza con pnpm: la raíz tiene que incluirlo.
+    outputFileTracingRoot: path.join(__dirname, ".."),
+    turbopack: {
+        root: path.join(__dirname, ".."),
+    },
+    transpilePackages: ["@aoturnos/game-core"],
 };
 
 export default nextConfig;

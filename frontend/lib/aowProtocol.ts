@@ -1,3 +1,5 @@
+import type { BattleClientMessage, BattleServerMessage } from "@aoturnos/game-core";
+
 export const CLIENT_PACKET_ID = {
     getMyCharacter: 1,
     getCharacter: 2,
@@ -77,6 +79,7 @@ export const CLIENT_PACKET_ID = {
     selfMapMetaDelta: 79,
     spellVisual: 80,
     entityVitalsDelta: 81,
+    battle: 82,
 } as const;
 
 export type PanelShare = {
@@ -201,6 +204,7 @@ export const SERVER_PACKET_ID = {
     closeTrade: 190,
     marketAction: 239,
     retosAction: 248,
+    battleAction: 249,
 } as const;
 
 export interface CharacterSnapshot {
@@ -773,6 +777,7 @@ export type ParsedServerPacket =
     | { type: "openCrafting"; payload: CraftingState }
     | { type: "openMarket"; payload: MarketState }
     | { type: "openRetos"; payload: RetosState }
+    | { type: "battle"; payload: BattleServerMessage }
     | { type: "closeBail"; payload: null }
     | { type: "openAdminIntervals"; payload: null }
     | { type: "panelSnapshot"; payload: PanelSnapshot }
@@ -1787,6 +1792,13 @@ function parseServerPacketById(
                 payload: JSON.parse(rawState) as MarketState,
             };
         }
+        case CLIENT_PACKET_ID.battle: {
+            const rawMessage = reader.getString();
+            return {
+                type: "battle",
+                payload: JSON.parse(rawMessage) as BattleServerMessage,
+            };
+        }
         case CLIENT_PACKET_ID.openRetos: {
             const rawState = reader.getString();
             return {
@@ -2197,6 +2209,12 @@ export function createRetosActionPacket(
 ): ArrayBuffer {
     const writer = new PacketWriter(SERVER_PACKET_ID.retosAction);
     writer.writeString(JSON.stringify({ action, ...payload }));
+    return writer.toArrayBuffer();
+}
+
+export function createBattleActionPacket(message: BattleClientMessage): ArrayBuffer {
+    const writer = new PacketWriter(SERVER_PACKET_ID.battleAction);
+    writer.writeString(JSON.stringify(message));
     return writer.toArrayBuffer();
 }
 

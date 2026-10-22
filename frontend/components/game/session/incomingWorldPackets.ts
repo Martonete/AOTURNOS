@@ -5,6 +5,7 @@ import type {
     IncomingPacketHandlerArgs,
     PartyStateDelta,
 } from "./incomingPacketTypes";
+import { battleStore } from "../battle/battleStore";
 
 const AREA_SNAPSHOT_RANGE_X = 15;
 const AREA_SNAPSHOT_RANGE_Y = 15;
@@ -318,6 +319,10 @@ export async function handleIncomingWorldPacket({
 
         case "openRetos":
             ctx.emitRetosState(packet.payload);
+            return true;
+
+        case "battle":
+            battleStore.receive(packet.payload);
             return true;
 
         case "closeTrade":
