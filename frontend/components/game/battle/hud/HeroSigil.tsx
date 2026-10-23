@@ -58,6 +58,51 @@ function Ring({
     );
 }
 
+/** Contador grande de PA o PM: el número se lee de un vistazo y las pepitas muestran lo que queda. */
+function Reserve({ kind, value, max, spend }: { kind: "ap" | "mp"; value: number; max: number; spend: number }) {
+    const ap = kind === "ap";
+    const tone = ap
+        ? { border: "border-amber-300/70", glow: "shadow-[0_0_16px_rgba(251,191,36,0.35)]", text: "text-amber-100", sub: "text-amber-200/70" }
+        : { border: "border-emerald-300/70", glow: "shadow-[0_0_16px_rgba(52,211,153,0.3)]", text: "text-emerald-100", sub: "text-emerald-200/70" };
+    const empty = value === 0;
+    return (
+        <div
+            className={`relative flex w-[112px] flex-col items-center rounded-xl border-2 bg-gradient-to-b from-black/80 to-[#120c08]/90 px-2 pb-1.5 pt-1 ${tone.border} ${
+                empty ? "opacity-55" : tone.glow
+            }`}
+            title={ap ? "Puntos de acción: se gastan al usar cartas y pociones" : "Puntos de movimiento: cada casilla cuesta 1"}
+        >
+            <span className={`text-[9px] font-bold tracking-[0.18em] ${tone.sub}`}>{ap ? "ACCIÓN" : "MOVIMIENTO"}</span>
+            <span className={`flex items-baseline gap-0.5 leading-none ${tone.text}`}>
+                <span className={`text-[30px] font-black tabular-nums ${spend > 0 ? "grim-spend" : ""}`}>{value}</span>
+                <span className="text-xs text-white/40">/{max}</span>
+                <span className={`ml-1 text-sm font-black ${tone.sub}`}>{ap ? "PA" : "PM"}</span>
+            </span>
+            <span className="mt-1 flex flex-nowrap justify-center gap-[5px]">
+                {Array.from({ length: max }, (_, i) => {
+                    const filled = i < value;
+                    const spending = filled && i >= value - spend;
+                    return ap ? (
+                        <span
+                            key={i}
+                            className={`block h-2.5 w-2.5 rotate-45 rounded-[2px] border ${spending ? "grim-spend" : ""} ${
+                                filled ? "border-amber-100/80 bg-gradient-to-br from-amber-200 to-orange-600" : "border-amber-900/60 bg-black/60"
+                            }`}
+                        />
+                    ) : (
+                        <Footprints key={i} size={11} className={filled ? "text-emerald-300" : "text-white/15"} />
+                    );
+                })}
+            </span>
+            {spend > 0 && (
+                <span className="absolute -right-2 -top-2 rounded-full border border-amber-200/70 bg-[#3b2208] px-1.5 text-[11px] font-black text-amber-100">
+                    −{spend}
+                </span>
+            )}
+        </div>
+    );
+}
+
 /** Sello del héroe: vida, maná y energía como anillos; PA como gemas y PM como huellas. */
 export function HeroSigil({
     unit,
@@ -78,26 +123,6 @@ export function HeroSigil({
     return (
         <div className="pointer-events-auto relative flex items-end gap-3">
             <div className="relative" style={{ width: SIZE, height: SIZE + 18 }}>
-                {/* Gemas de PA en arco sobre el sello */}
-                <div className="absolute left-1/2 top-[-18px] flex -translate-x-1/2 gap-1.5" title="Puntos de acción">
-                    {Array.from({ length: res.maxAp }, (_, i) => {
-                        const filled = i < res.ap;
-                        const spending = filled && i >= res.ap - apSpend;
-                        const lift = Math.abs(i - (res.maxAp - 1) / 2);
-                        return (
-                            <span
-                                key={i}
-                                className={`block h-3.5 w-3.5 rotate-45 rounded-[3px] border ${spending ? "grim-spend" : ""} ${
-                                    filled
-                                        ? "border-amber-100/80 bg-gradient-to-br from-amber-200 via-amber-400 to-orange-600 shadow-[0_0_10px_rgba(251,191,36,0.8)]"
-                                        : "border-amber-900/60 bg-black/60"
-                                }`}
-                                style={{ marginTop: lift * lift * 2.5 }}
-                            />
-                        );
-                    })}
-                </div>
-
                 <svg width={SIZE} height={SIZE} className="absolute left-0 top-0 drop-shadow-[0_8px_18px_rgba(0,0,0,0.7)]">
                     <defs>
                         <radialGradient id="sigil-core" cx="50%" cy="40%" r="60%">
@@ -151,6 +176,10 @@ export function HeroSigil({
             </div>
 
             <div className="mb-6 flex flex-col gap-1.5 font-rune text-[11px] tracking-wider">
+                <div className="mb-1 flex gap-2">
+                    <Reserve kind="ap" value={res.ap} max={res.maxAp} spend={myTurn ? apSpend : 0} />
+                    <Reserve kind="mp" value={res.mp} max={res.maxMp} spend={0} />
+                </div>
                 <span className="text-rose-200">
                     <span className="text-white/45">VIDA </span>
                     <span className="tabular-nums">
@@ -173,11 +202,6 @@ export function HeroSigil({
                         </span>
                     </span>
                 )}
-                <span className="flex items-center gap-1 text-emerald-200" title="Puntos de movimiento">
-                    {Array.from({ length: res.maxMp }, (_, i) => (
-                        <Footprints key={i} size={14} className={i < res.mp ? "text-emerald-300" : "text-white/15"} />
-                    ))}
-                </span>
                 {guard > 0 && (
                     <span
                         className="w-fit rounded-full border border-amber-300/50 bg-amber-500/15 px-1.5 py-px text-[10px] normal-case tracking-normal text-amber-100"
