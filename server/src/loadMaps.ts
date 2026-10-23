@@ -149,6 +149,15 @@ class LoadMaps {
         return path.join(MAPS_SOURCE_DIR, `mapa_${mapNum}`);
     }
 
+    availableMapIds(): number[] {
+        return fs
+            .readdirSync(MAPS_SOURCE_DIR)
+            .map((name: string) => /^mapa_(\d+)$/.exec(name)?.[1])
+            .filter(Boolean)
+            .map(Number)
+            .sort((a: number, b: number) => a - b);
+    }
+
     mapFilesExist(mapNum: number) {
         const mapDir = this.getMapDirectory(mapNum);
 
@@ -157,15 +166,9 @@ class LoadMaps {
 
     async initialize() {
         const arMapsToLoad: Array<Promise<unknown>> = [];
-        const extraTestMaps = [500, 501, 502, 503, 504, 505, 506];
 
-        for (let i = 1; i < 291; i++) {
-            if (this.mapFilesExist(i)) {
-                arMapsToLoad.push(this.readMap(i));
-            }
-        }
-
-        for (const mapId of extraTestMaps) {
+        // Carga todo mapa_N que exista, así los mapas nuevos del editor (/editor) entran sin tocar código.
+        for (const mapId of this.availableMapIds()) {
             if (this.mapFilesExist(mapId)) {
                 arMapsToLoad.push(this.readMap(mapId));
             }

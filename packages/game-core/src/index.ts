@@ -18,3 +18,7 @@ export * from "./data/monsters";
 export * from "./data/statuses";
 export * from "./data/encounters";
 export * from "./protocol";
+export * from "./maps/format";
+export * from "./maps/document";
+export * from "./maps/editing";
+export * from "./maps/compact";

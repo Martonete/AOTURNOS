@@ -21,3 +21,4 @@ playwright-report/
 *.cer
 *.jks
 *.keystore
+server/mapas_source/.backups/
