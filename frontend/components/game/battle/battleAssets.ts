@@ -92,7 +92,7 @@ async function textureFor(data: GraphicData): Promise<Texture | null> {
 }
 
 /** Cuadros de un gráfico: uno si es estático, todos si es animado (frames del graficos.json). */
-export function loadGraphicFrames(dbs: BattleDBs, graphicId: number): Promise<Texture[]> {
+export function loadGraphicFrames(dbs: Pick<BattleDBs, "graphics">, graphicId: number): Promise<Texture[]> {
     const key = String(graphicId);
     let promise = frameTextures.get(key);
     if (!promise) {

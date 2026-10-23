@@ -50,7 +50,7 @@ export function headingBetween(from: Tile, to: Tile): Heading {
     return dy > 0 ? 2 : 1;
 }
 
-/** Guerrero: salir de una casilla adyacente a un enemigo con zona de control cuesta 1 PM extra. */
+/** Paladín: salir de una casilla adyacente a un enemigo con zona de control cuesta 1 PM extra. */
 function exitCost(state: BattleState, mover: Combatant, from: Tile): number {
     for (const { dx, dy } of DIRECTIONS) {
         const other = combatantAt(state, { x: from.x + dx, y: from.y + dy });

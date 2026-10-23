@@ -38,7 +38,7 @@ const AI_TURN_DELAY_MS = 900;
 const TURN_TIME_MS = 45_000;
 
 /** Clases sin versión táctica todavía: se juegan con la más parecida de las cuatro iniciales. */
-const CLASS_FALLBACK: Record<number, ClassId> = { 1: 1, 2: 2, 3: 3, 4: 3, 6: 2, 7: 2, 8: 3, 9: 9 };
+const CLASS_FALLBACK: Record<number, ClassId> = { 1: 1, 2: 2, 3: 8, 4: 8, 6: 2, 7: 2, 8: 8, 9: 9 };
 
 type BattleCharacter = RuntimeCharacter & { battleId?: string | null };
 type BattleNpc = RuntimeNpc & { battleId?: string | null };
@@ -149,7 +149,7 @@ function heroFromCharacter(member: BattleCharacter): Combatant {
     const hero = createHero({
         characterId: String(member.id),
         name: member.nameCharacter,
-        classId: CLASS_FALLBACK[Number(member.idClase)] ?? 3,
+        classId: CLASS_FALLBACK[Number(member.idClase)] ?? 8,
         level: Number(member.level ?? 1),
         // Solo para pruebas: AO_BATTLE_AUTOPLAY=1 deja que la IA juegue también por los héroes.
         controller: process.env.AO_BATTLE_AUTOPLAY === "1" ? "ai" : "player",

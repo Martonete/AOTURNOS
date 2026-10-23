@@ -8,6 +8,13 @@ export const CHARACTER_CLASSES = [
     "paladin",
     "cazador",
 ] as const;
+/** Clases que se pueden elegir al crear personaje. El resto queda deshabilitado por ahora. */
+export const PLAYABLE_CHARACTER_CLASSES = [
+    "mago",
+    "paladin",
+    "clerigo",
+    "cazador",
+] as const satisfies readonly (typeof CHARACTER_CLASSES)[number][];
 export const CHARACTER_RACES = [
     "humano",
     "elfo",

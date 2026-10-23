@@ -84,7 +84,8 @@ export default function AppChrome({ children }: AppChromeProps) {
         };
     }, [pathname]);
 
-    if (pathname === "/play") {
+    // El juego y el editor de mapas ocupan toda la pantalla, sin la barra del sitio.
+    if (pathname === "/play" || pathname === "/editor") {
         return <>{children}</>;
     }
 

@@ -55,7 +55,7 @@ export default function PracticePage() {
                         </div>
                         <label className="flex items-center gap-3 text-sm text-white/80">
                             Nivel {level}
-                            <input type="range" min={1} max={40} value={level} onChange={(e) => setLevel(Number(e.target.value))} />
+                            <input type="range" min={1} max={30} value={level} onChange={(e) => setLevel(Number(e.target.value))} />
                         </label>
                         <button
                             type="button"

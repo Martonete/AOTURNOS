@@ -4,14 +4,17 @@ import { DIRECTIONS, headingBetween, isFree, manhattan, pathCost, sameTile } fro
 import type { Rng } from "./rng";
 import {
     critChance,
+    crowdGuard,
     FLANK_DAMAGE,
     flankOf,
     hitChance,
     longShotBonus,
     mitigate,
+    RIPOSTE_MULT,
     spellDamage,
     weaponDamage,
 } from "./rules";
+import { hasStatus } from "./statuses";
 import { affectedCombatants, areaTiles, dashLanding, ITEM_AP, MEDITATE_AP } from "./targeting";
 import { STATUSES } from "../data/statuses";
 import type { BattleAction, BattleEvent, BattleState, Combatant, Tile } from "./types";
@@ -126,6 +129,21 @@ function resolveAbility(state: BattleState, actor: Combatant, ability: AbilityDe
     return events;
 }
 
+/** Represalia: si la víctima está defendiendo y sigue en pie, devuelve medio golpe al atacante pegado. */
+function riposte(state: BattleState, defender: Combatant, attacker: Combatant, rng: Rng): BattleEvent[] {
+    if (!defender.alive || !attacker.alive || !hasStatus(defender, "defendiendo")) return [];
+    const flank = flankOf(defender, attacker);
+    const events: BattleEvent[] = [{ t: "riposted", actorId: defender.id, targetId: attacker.id }];
+    if (!rng.chance(hitChance(defender, attacker, flank))) {
+        events.push({ t: "missed", targetId: attacker.id, sourceId: defender.id });
+        return events;
+    }
+    const roll = rng.int(defender.stats.hitMin, defender.stats.hitMax);
+    const raw = mitigate(weaponDamage(defender, roll, RIPOSTE_MULT) * FLANK_DAMAGE[flank], attacker.stats.defense);
+    events.push(...dealDamage(attacker, defender.id, raw * (1 - crowdGuard(state, attacker)), "physical", { flank }));
+    return events;
+}
+
 /** Daño al chocar contra un obstáculo, por casilla de empuje que quedó sin recorrer. */
 const COLLISION_DAMAGE = 7;
 
@@ -179,7 +197,8 @@ function applyEffects(state: BattleState, actor: Combatant, victim: Combatant, a
                     weaponDamage(actor, roll, effect.mult) * FLANK_DAMAGE[flank] * longShotBonus(actor, distance) * (crit ? 1.5 : 1),
                     victim.stats.defense,
                 );
-                events.push(...dealDamage(victim, actor.id, raw, "physical", { crit, flank }));
+                events.push(...dealDamage(victim, actor.id, raw * (1 - crowdGuard(state, victim)), "physical", { crit, flank }));
+                if (distance === 1) events.push(...riposte(state, victim, actor, rng));
                 break;
             }
             case "damage": {
@@ -188,7 +207,7 @@ function applyEffects(state: BattleState, actor: Combatant, victim: Combatant, a
                     effect.school === "physical"
                         ? mitigate(roll * FLANK_DAMAGE[flank] * longShotBonus(actor, distance), victim.stats.defense / 2)
                         : spellDamage(actor, victim, roll);
-                events.push(...dealDamage(victim, actor.id, raw, effect.school, { flank }));
+                events.push(...dealDamage(victim, actor.id, raw * (1 - crowdGuard(state, victim)), effect.school, { flank }));
                 break;
             }
             case "heal": {

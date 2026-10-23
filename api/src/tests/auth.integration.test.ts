@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { beforeAll, test } from "vitest";
 import {
     type SessionPayload,
+    buildCharacterName,
     connectCharacter,
     createAccountFixture,
     createCharacter,
@@ -187,4 +188,44 @@ test("delete-character rejects banned characters", async () => {
         expectErrorPayload(deleted.data).error,
         "No se puede borrar un personaje baneado",
     );
+});
+
+test("create-character only accepts the four playable classes", async () => {
+    const account = await createAccountFixture();
+
+    for (const blockedClass of ["guerrero", "asesino", "bardo", "druida"]) {
+        const response = await requestJson("/auth/create-character", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${account.session.sessionToken}`,
+            },
+            body: JSON.stringify({
+                name: buildCharacterName("Cls"),
+                class: blockedClass,
+                race: "humano",
+                gender: "male",
+                headId: 1,
+            }),
+        });
+        assert.equal(response.status, 400, blockedClass);
+    }
+
+    for (const playableClass of ["mago", "paladin", "clerigo", "cazador"]) {
+        const response = await requestJson("/auth/create-character", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${account.session.sessionToken}`,
+            },
+            body: JSON.stringify({
+                name: buildCharacterName("Cls"),
+                class: playableClass,
+                race: "humano",
+                gender: "male",
+                headId: 1,
+            }),
+        });
+        assert.equal(response.ok, true, `${playableClass}: ${JSON.stringify(response.data)}`);
+    }
 });

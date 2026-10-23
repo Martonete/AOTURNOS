@@ -15,7 +15,7 @@ import {
 import { duel } from "./helpers";
 
 const mago = () => createHero({ characterId: "m", name: "Nieri", classId: 1, level: 20 });
-const guerrero = () => createHero({ characterId: "g", name: "Brutus", classId: 3, level: 20 });
+const paladin = () => createHero({ characterId: "g", name: "Brutus", classId: 8, level: 20 });
 
 /** Hace que el héroe sea el primero en actuar, sin depender de la iniciativa. */
 function startWithHero(engine: BattleEngine, heroId: string) {
@@ -32,7 +32,7 @@ function startWithHero(engine: BattleEngine, heroId: string) {
 
 describe("BattleEngine", () => {
     it("arranca en colocación y la primera ronda alterna bandos por iniciativa", () => {
-        const heroes = [mago(), guerrero()];
+        const heroes = [mago(), paladin()];
         const enemies = [createEnemy("lobo", 0), createEnemy("goblin", 1)];
         const state = createBattle({ id: "b1", seed: 7, grid: createGrid(15, 11), heroes, enemies });
         const engine = new BattleEngine(state, { now: () => 0 });
@@ -46,7 +46,7 @@ describe("BattleEngine", () => {
     });
 
     it("rechaza acciones fuera de turno y movimientos sin PM", () => {
-        const hero = guerrero();
+        const hero = paladin();
         const wolf = createEnemy("lobo", 0);
         const { engine } = duel(hero, [wolf], { x: 7, y: 9 }, { x: 7, y: 1 });
         startWithHero(engine, hero.id);
@@ -111,7 +111,7 @@ describe("BattleEngine", () => {
     });
 
     it("la victoria termina la batalla", () => {
-        const hero = guerrero();
+        const hero = paladin();
         const wolf = createEnemy("lobo", 0);
         wolf.res.hp = 1;
         wolf.stats.evasion = -500;
@@ -123,7 +123,7 @@ describe("BattleEngine", () => {
     });
 
     it("vencer el reloj deja al personaje defendiendo", () => {
-        const hero = guerrero();
+        const hero = paladin();
         const { engine, tick } = duel(hero, [createEnemy("lobo", 0)], { x: 7, y: 9 }, { x: 7, y: 1 });
         startWithHero(engine, hero.id);
         expect(engine.expireTurn(1_000)).toEqual([]);
@@ -138,8 +138,8 @@ describe("BattleEngine", () => {
         expect(hasLineOfSight(grid, { x: 2, y: 2 }, { x: 8, y: 2 })).toBe(true);
     });
 
-    it("la zona de control del guerrero encarece salir de su lado", () => {
-        const hero = guerrero();
+    it("la zona de control del paladín encarece salir de su lado", () => {
+        const hero = paladin();
         const wolf = createEnemy("lobo", 0);
         const { state } = duel(hero, [wolf], { x: 7, y: 6 }, { x: 7, y: 5 });
         const reach = reachableTiles(state, wolf, 2);
@@ -163,7 +163,7 @@ describe("BattleEngine", () => {
 
     it("IA contra IA termina las batallas de la rebanada vertical", () => {
         for (const encounter of Object.values(ENCOUNTERS)) {
-            for (const classId of [1, 2, 3, 9] as const) {
+            for (const classId of [1, 2, 8, 9] as const) {
                 const heroes = [createHero({ characterId: "h", name: "H", classId, level: 20, controller: "ai" })];
                 const enemies = encounterEnemies(encounter, 1).map((id, i) => createEnemy(id, i));
                 const state = createBattle({ id: `${encounter.id}-${classId}`, grid: createGrid(15, 11), heroes, enemies });

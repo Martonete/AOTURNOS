@@ -19,7 +19,7 @@ const STAMINA_REGEN = 25;
 export const MAX_ROUNDS = 40;
 
 export const TurnManager = {
-    /** Orden de la ronda: iniciativa descendente, desempate con el RNG y bandos alternados. */
+    /** Orden de la ronda: iniciativa descendente, desempate con el RNG y bandos intercalados de forma pareja. */
     computeOrder(state: BattleState, rng: Rng): string[] {
         const rolled = Object.values(state.combatants)
             .filter((c) => c.alive)
@@ -31,12 +31,13 @@ export const TurnManager = {
         const first = rolled[0]?.c.team === "enemies" ? enemies : heroes;
         const second = first === heroes ? enemies : heroes;
 
-        const order: string[] = [];
-        for (let i = 0; i < Math.max(first.length, second.length); i++) {
-            if (i < first.length) order.push(first[i]);
-            if (i < second.length) order.push(second[i]);
-        }
-        return order;
+        // Intercalado parejo: el bando más chico queda repartido a lo largo de la ronda en vez de
+        // amontonar al final los turnos sobrantes del más grande (2 contra 4 = H E E H E E, no H E H E E E).
+        const slots = [
+            ...first.map((id, i) => ({ id, key: i / first.length, tie: 1 })),
+            ...second.map((id, i) => ({ id, key: (i + 0.5) / second.length, tie: 0 })),
+        ];
+        return slots.sort((a, b) => a.key - b.key || a.tie - b.tie).map((s) => s.id);
     },
 
     refill(c: Combatant): void {

@@ -20,7 +20,7 @@ const npc = (name: string, worldId = name) =>
 
 /** Pone al enemigo a jugar primero, con todo lo demás quieto. */
 function setup(enemy: ReturnType<typeof npc>, enemyPos: { x: number; y: number }, heroPos: { x: number; y: number }, blocked: { x: number; y: number }[] = []) {
-    const hero = createHero({ characterId: "h", name: "Nieri", classId: 3, level: 20 });
+    const hero = createHero({ characterId: "h", name: "Nieri", classId: 8, level: 20 });
     const state = createBattle({ id: "m", seed: 11, grid: createGrid(15, 11, { blocked }), heroes: [hero], enemies: [enemy] });
     hero.pos = heroPos;
     enemy.pos = enemyPos;

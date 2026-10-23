@@ -4,7 +4,7 @@ import type { PoolClient } from "pg";
 import pool from "../db";
 import config from "../config";
 import {
-    CHARACTER_CLASSES,
+    PLAYABLE_CHARACTER_CLASSES,
     CHARACTER_GENDERS,
     CHARACTER_RACES,
     CLASS_ID_MAP,
@@ -144,7 +144,7 @@ const passwordResetConfirmSchema = z.object({
 const createCharacterSchema = z
     .object({
         name: displayNameSchema,
-        class: z.enum(CHARACTER_CLASSES),
+        class: z.enum(PLAYABLE_CHARACTER_CLASSES),
         race: z.enum(CHARACTER_RACES),
         gender: z.enum(CHARACTER_GENDERS),
         headId: z.coerce.number().int().positive(),

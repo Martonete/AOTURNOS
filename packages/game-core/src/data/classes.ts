@@ -93,27 +93,30 @@ export const CLASSES: Record<ClassId, ClassDef> = {
         tags: [],
         appearance: { body: 56, head: 1, weapon: 24, shield: 6, helmet: 6 },
     },
-    3: {
-        id: 3,
-        name: "Guerrero",
-        role: "Primera línea y control de zona",
+    8: {
+        id: 8,
+        name: "Paladín",
+        role: "Primera línea: golpe fuerte y pocos hechizos de apoyo",
         archetype: "melee",
-        vida: 10.5,
-        multMana: 0,
+        vida: 10,
+        multMana: 1,
         usesStamina: true,
         maxMp: 4,
-        modAtaque: 1.1,
-        modDmg: 1.05,
-        modDmgMagia: 0,
-        modEvasion: 1,
-        modResistenciaMagica: 12,
-        baseAttrs: { fuerza: 19, agilidad: 17, inteligencia: 10, constitucion: 19 },
+        modAtaque: 1.03,
+        modDmg: 1,
+        modDmgMagia: 0.78,
+        modEvasion: 0.85,
+        modResistenciaMagica: 5,
+        baseAttrs: { fuerza: 19, agilidad: 16, inteligencia: 14, constitucion: 19 },
         weapon: { min: 7, max: 14, perLevel: 0.8 },
         defense: 10,
         abilities: [
             { id: "golpe", level: 1 },
             { id: "embestida", level: 1 },
-            { id: "provocar", level: 1 },
+            { id: "curar_leves", level: 1 },
+            { id: "barrido", level: 1 },
+            { id: "provocar", level: 5 },
+            { id: "remover_paralisis", level: 8 },
             { id: "golpe_brutal", level: 10 },
         ],
         tags: ["zoneOfControl"],
@@ -121,7 +124,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     },
     9: {
         id: 9,
-        name: "Arquero",
+        name: "Cazador",
         role: "Daño físico a distancia y remate",
         archetype: "ranged",
         vida: 10,
@@ -139,6 +142,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
         abilities: [
             { id: "golpe", level: 1 },
             { id: "disparo", level: 1 },
+            { id: "tiro_rapido", level: 1 },
             { id: "flecha_elfica", level: 1 },
             { id: "disparo_inmovilizante", level: 1 },
             { id: "flecha_electrica", level: 10 },
@@ -149,7 +153,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     },
 };
 
-export const PLAYABLE_CLASS_IDS: ClassId[] = [1, 9, 3, 2];
+export const PLAYABLE_CLASS_IDS: ClassId[] = [1, 8, 2, 9];
 
 export function isPlayableClass(id: number): id is ClassId {
     return id === 1 || id === 2 || id === 3 || id === 9;
